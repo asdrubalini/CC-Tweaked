@@ -47,7 +47,7 @@ public abstract class AbstractComputerBlockEntity extends BlockEntity implements
     private int computerID = -1;
     protected @Nullable String label = null;
     private boolean on = false;
-    boolean startOn = false;
+    boolean startOn = true;
     private boolean fresh = false;
 
     private int invalidSides = 0;
