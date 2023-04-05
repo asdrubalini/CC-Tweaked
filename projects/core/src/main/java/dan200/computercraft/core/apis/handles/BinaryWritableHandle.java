@@ -1,6 +1,6 @@
-// Copyright Daniel Ratcliffe, 2011-2022. Do not distribute without permission.
+// SPDX-FileCopyrightText: 2017 The CC: Tweaked Developers
 //
-// SPDX-License-Identifier: LicenseRef-CCPL
+// SPDX-License-Identifier: MPL-2.0
 
 package dan200.computercraft.core.apis.handles;
 
@@ -60,7 +60,7 @@ public class BinaryWritableHandle extends HandleGeneric {
             } else if (arg instanceof String) {
                 channel.write(arguments.getBytes(0));
             } else {
-                throw LuaValues.badArgumentOf(0, "string or number", arg);
+                throw LuaValues.badArgumentOf(arguments, 0, "string or number");
             }
         } catch (IOException e) {
             throw new LuaException(e.getMessage());

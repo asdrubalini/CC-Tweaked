@@ -1,6 +1,6 @@
 -- SPDX-FileCopyrightText: 2021 The CC: Tweaked Developers
 --
--- SPDX-License-Identifier: LicenseRef-CCPL
+-- SPDX-License-Identifier: MPL-2.0
 
 local function get_speakers(name)
     if name then
@@ -28,6 +28,12 @@ local function pcm_decoder(chunk)
         buffer[i] = chunk:byte(i) - 128
     end
     return buffer
+end
+
+local function report_invalid_format(format)
+    printError(("The speaker cannot play %s files."):format(format))
+    local pp = require "cc.pretty"
+    pp.print("Run '" .. pp.text("help speaker", colours.lightGrey) .. "' for information on supported formats.")
 end
 
 
@@ -97,6 +103,10 @@ elseif cmd == "play" then
 
         handle.read(4)
         start = nil
+    -- Detect several other common audio files.
+    elseif start == "OggS" then return report_invalid_format("Ogg")
+    elseif start == "fLaC" then return report_invalid_format("FLAC")
+    elseif start:sub(1, 3) == "ID3" then return report_invalid_format("MP3")
     end
 
     print("Playing " .. file)
