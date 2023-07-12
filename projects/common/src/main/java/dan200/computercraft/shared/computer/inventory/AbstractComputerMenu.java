@@ -12,6 +12,7 @@ import dan200.computercraft.shared.computer.menu.ServerInputHandler;
 import dan200.computercraft.shared.computer.menu.ServerInputState;
 import dan200.computercraft.shared.computer.terminal.NetworkedTerminal;
 import dan200.computercraft.shared.computer.terminal.TerminalState;
+import dan200.computercraft.shared.config.Config;
 import dan200.computercraft.shared.container.SingleContainerData;
 import dan200.computercraft.shared.network.container.ComputerContainerData;
 import net.minecraft.world.entity.player.Player;
@@ -26,6 +27,7 @@ import java.util.function.Predicate;
 
 public abstract class AbstractComputerMenu extends AbstractContainerMenu implements ComputerMenu {
     public static final int SIDEBAR_WIDTH = 17;
+    private final int uploadMaxSize;
 
     private final Predicate<Player> canUse;
     private final ComputerFamily family;
@@ -52,6 +54,7 @@ public abstract class AbstractComputerMenu extends AbstractContainerMenu impleme
         input = computer == null ? null : new ServerInputState<>(this);
         terminal = containerData == null ? null : containerData.terminal().create();
         displayStack = containerData == null ? ItemStack.EMPTY : containerData.displayStack();
+        uploadMaxSize = containerData == null ? Config.uploadMaxSize : containerData.uploadMaxSize();
     }
 
     @Override
@@ -65,6 +68,10 @@ public abstract class AbstractComputerMenu extends AbstractContainerMenu impleme
 
     public boolean isOn() {
         return data.get(0) != 0;
+    }
+
+    public int getUploadMaxSize() {
+        return uploadMaxSize;
     }
 
     @Override

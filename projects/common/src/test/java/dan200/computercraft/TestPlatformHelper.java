@@ -36,7 +36,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.inventory.MenuType;
-import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Recipe;
@@ -59,6 +58,11 @@ import java.util.function.Predicate;
 
 @AutoService({ PlatformHelper.class, dan200.computercraft.impl.PlatformHelper.class, ComputerCraftAPIService.class })
 public class TestPlatformHelper extends AbstractComputerCraftAPI implements PlatformHelper {
+    @Override
+    public boolean isDevelopmentEnvironment() {
+        return true;
+    }
+
     @Override
     public ConfigFile.Builder createConfigBuilder() {
         throw new UnsupportedOperationException("Cannot create config file inside tests");
@@ -92,7 +96,12 @@ public class TestPlatformHelper extends AbstractComputerCraftAPI implements Plat
 
     @Override
     public boolean shouldLoadResource(JsonObject object) {
-        throw new UnsupportedOperationException("Cannot use loot conditions");
+        throw new UnsupportedOperationException("Cannot use resource conditions");
+    }
+
+    @Override
+    public void addRequiredModCondition(JsonObject object, String modId) {
+        throw new UnsupportedOperationException("Cannot use resource conditions");
     }
 
     @Override
@@ -163,13 +172,6 @@ public class TestPlatformHelper extends AbstractComputerCraftAPI implements Plat
     @Override
     public boolean onNotifyNeighbour(Level level, BlockPos pos, BlockState block, Direction direction) {
         throw new UnsupportedOperationException("Cannot interact with the world inside tests");
-    }
-
-
-    @Nullable
-    @Override
-    public ResourceLocation getCreativeTabId(CreativeModeTab tab) {
-        return null;
     }
 
     @Override

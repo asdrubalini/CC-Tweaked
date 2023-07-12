@@ -5,6 +5,7 @@
 package dan200.computercraft.shared.platform;
 
 import com.google.auto.service.AutoService;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.arguments.ArgumentType;
@@ -32,13 +33,13 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.TagKey;
+import net.minecraft.util.GsonHelper;
 import net.minecraft.world.*;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.inventory.MenuType;
-import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.UseOnContext;
@@ -52,18 +53,20 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.common.CreativeModeTabRegistry;
 import net.minecraftforge.common.ForgeHooks;
 import net.minecraftforge.common.Tags;
 import net.minecraftforge.common.ToolActions;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.common.crafting.CraftingHelper;
 import net.minecraftforge.common.crafting.conditions.ICondition;
+import net.minecraftforge.common.crafting.conditions.ModLoadedCondition;
 import net.minecraftforge.common.extensions.IForgeMenuType;
 import net.minecraftforge.common.util.NonNullConsumer;
 import net.minecraftforge.event.ForgeEventFactory;
 import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.fml.loading.FMLLoader;
 import net.minecraftforge.items.wrapper.InvWrapper;
 import net.minecraftforge.items.wrapper.SidedInvWrapper;
 import net.minecraftforge.network.NetworkHooks;
@@ -78,6 +81,11 @@ import java.util.function.*;
 
 @AutoService(dan200.computercraft.impl.PlatformHelper.class)
 public class PlatformHelperImpl implements PlatformHelper {
+    @Override
+    public boolean isDevelopmentEnvironment() {
+        return !FMLLoader.isProduction();
+    }
+
     @Override
     public ConfigFile.Builder createConfigBuilder() {
         return new ForgeConfigFile.Builder();
@@ -116,6 +124,17 @@ public class PlatformHelperImpl implements PlatformHelper {
     @Override
     public boolean shouldLoadResource(JsonObject object) {
         return ICondition.shouldRegisterEntry(object);
+    }
+
+    @Override
+    public void addRequiredModCondition(JsonObject object, String modId) {
+        var conditions = GsonHelper.getAsJsonArray(object, "forge:conditions", null);
+        if (conditions == null) {
+            conditions = new JsonArray();
+            object.add("forge:conditions", conditions);
+        }
+
+        conditions.add(CraftingHelper.serialize(new ModLoadedCondition(modId)));
     }
 
     @Override
@@ -256,12 +275,6 @@ public class PlatformHelperImpl implements PlatformHelper {
     @Override
     public int getBurnTime(ItemStack stack) {
         return ForgeHooks.getBurnTime(stack, null);
-    }
-
-    @Nullable
-    @Override
-    public ResourceLocation getCreativeTabId(CreativeModeTab tab) {
-        return CreativeModeTabRegistry.getName(tab);
     }
 
     @Override

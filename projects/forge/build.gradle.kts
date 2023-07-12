@@ -35,8 +35,6 @@ minecraft {
             property("forge.logging.markers", "REGISTRIES")
             property("forge.logging.console.level", "debug")
 
-            forceExit = false
-
             mods.register("computercraft") {
                 cct.sourceDirectories.get().forEach {
                     if (it.classes) sources(it.sourceSet)
@@ -129,6 +127,7 @@ dependencies {
     compileOnly(libs.jetbrainsAnnotations)
     annotationProcessorEverywhere(libs.autoService)
 
+    clientCompileOnly(variantOf(libs.emi) { classifier("api") })
     libs.bundles.externalMods.forge.compile.get().map { compileOnly(fg.deobf(it)) }
     libs.bundles.externalMods.forge.runtime.get().map { runtimeOnly(fg.deobf(it)) }
 
@@ -144,6 +143,14 @@ dependencies {
         jarJar.ranged(this, "[${libs.versions.jzlib.get()},)")
     }
     minecraftEmbed(libs.netty.http) {
+        jarJar.ranged(this, "[${libs.versions.netty.get()},)")
+        isTransitive = false
+    }
+    minecraftEmbed(libs.netty.socks) {
+        jarJar.ranged(this, "[${libs.versions.netty.get()},)")
+        isTransitive = false
+    }
+    minecraftEmbed(libs.netty.proxy) {
         jarJar.ranged(this, "[${libs.versions.netty.get()},)")
         isTransitive = false
     }
@@ -254,11 +261,7 @@ val runGametest by tasks.registering(JavaExec::class) {
     dependsOn("cleanRunGametest")
     usesService(MinecraftRunnerService.get(gradle))
 
-    // Copy from runGameTestServer. We do it in this slightly odd way as runGameTestServer
-    // isn't created until the task is configured (which is no good for us).
-    val exec = tasks.getByName<JavaExec>("runGameTestServer")
-    dependsOn(exec.dependsOn)
-    exec.copyToFull(this)
+    setRunConfig(minecraft.runs["gameTestServer"])
 
     systemProperty("cctest.gametest-report", project.buildDir.resolve("test-results/$name.xml").absolutePath)
 }
@@ -267,7 +270,7 @@ tasks.check { dependsOn(runGametest) }
 
 val runGametestClient by tasks.registering(ClientJavaExec::class) {
     description = "Runs client-side gametests with no mods"
-    copyFrom("runTestClient")
+    setRunConfig(minecraft.runs["testClient"])
     tags("client")
 }
 cct.jacoco(runGametestClient)

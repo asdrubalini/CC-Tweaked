@@ -4,10 +4,7 @@
 
 package dan200.computercraft.shared.platform;
 
-import com.electronwill.nightconfig.core.Config;
-import com.electronwill.nightconfig.core.ConfigSpec;
-import com.electronwill.nightconfig.core.EnumGetMethod;
-import com.electronwill.nightconfig.core.UnmodifiableConfig;
+import com.electronwill.nightconfig.core.*;
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.core.file.FileNotFoundAction;
 import com.electronwill.nightconfig.core.file.FileWatcher;
@@ -37,11 +34,11 @@ public class FabricConfigFile implements ConfigFile {
 
     private final ConfigSpec spec;
     private final Trie<String, Entry> entries;
-    private final Runnable onChange;
+    private final ConfigListener onChange;
 
     private @Nullable CommentedFileConfig config;
 
-    public FabricConfigFile(ConfigSpec spec, Trie<String, Entry> entries, Runnable onChange) {
+    public FabricConfigFile(ConfigSpec spec, Trie<String, Entry> entries, ConfigListener onChange) {
         this.spec = spec;
         this.entries = entries;
         this.onChange = onChange;
@@ -98,7 +95,7 @@ public class FabricConfigFile implements ConfigFile {
             LOG.warn("Incorrect key {} was corrected from {} to {}", String.join(".", entryPath), oldValue, newValue);
         });
 
-        onChange.run();
+        onChange.onConfigChanged(config.getNioPath());
 
         return corrected > 0;
     }
@@ -200,14 +197,14 @@ public class FabricConfigFile implements ConfigFile {
         @Override
         public <V extends Enum<V>> Value<V> defineEnum(String path, V defaultValue) {
             var fullPath = getFullPath(path);
-            spec.defineEnum(fullPath, defaultValue, EnumGetMethod.NAME_IGNORECASE);
+            spec.define(fullPath, defaultValue, o -> o != null && o != NullObject.NULL_OBJECT && EnumGetMethod.NAME_IGNORECASE.validate(o, defaultValue.getDeclaringClass()));
 
             var suffix = "Allowed Values: " + Arrays.stream(defaultValue.getDeclaringClass().getEnumConstants()).map(Enum::name).collect(Collectors.joining(", "));
-            return defineValue(path, takeComment(suffix), defaultValue, (c, p, d) -> c.getEnumOrElse(p, d, EnumGetMethod.NAME_IGNORECASE));
+            return defineValue(fullPath, takeComment(suffix), defaultValue, (c, p, d) -> c.getEnumOrElse(p, d, EnumGetMethod.NAME_IGNORECASE));
         }
 
         @Override
-        public ConfigFile build(Runnable onChange) {
+        public ConfigFile build(ConfigListener onChange) {
             return new FabricConfigFile(spec, entries, onChange);
         }
     }
@@ -221,10 +218,12 @@ public class FabricConfigFile implements ConfigFile {
             this.comment = comment;
         }
 
+        @SuppressWarnings("UnusedMethod")
         public final String translationKey() {
             return TRANSLATION_PREFIX + path;
         }
 
+        @SuppressWarnings("UnusedMethod")
         public final String comment() {
             return comment;
         }

@@ -39,6 +39,12 @@ import java.util.concurrent.TimeUnit;
 
 import static dan200.computercraft.core.util.Nullability.assertNonNull;
 
+/**
+ * The base class of all screens with a computer terminal (i.e. {@link ComputerScreen}). This works with
+ * {@link AbstractComputerMenu} to handle the common behaviour such as the terminal, input and file uploading.
+ *
+ * @param <T> The concrete type of the associated menu.
+ */
 public abstract class AbstractComputerScreen<T extends AbstractComputerMenu> extends AbstractContainerScreen<T> {
     private static final Logger LOG = LoggerFactory.getLogger(AbstractComputerScreen.class);
 
@@ -55,6 +61,7 @@ public abstract class AbstractComputerScreen<T extends AbstractComputerMenu> ext
     protected final int sidebarYOffset;
 
     private long uploadNagDeadline = Long.MAX_VALUE;
+    private final int uploadMaxSize;
     private final ItemStack displayStack;
 
     public AbstractComputerScreen(T container, Inventory player, Component title, int sidebarYOffset) {
@@ -62,6 +69,7 @@ public abstract class AbstractComputerScreen<T extends AbstractComputerMenu> ext
         terminalData = container.getTerminal();
         family = container.getFamily();
         displayStack = container.getDisplayStack();
+        uploadMaxSize = container.getUploadMaxSize();
         input = new ClientInputHandler(menu);
         this.sidebarYOffset = sidebarYOffset;
     }
@@ -161,7 +169,7 @@ public abstract class AbstractComputerScreen<T extends AbstractComputerMenu> ext
 
             try (var sbc = Files.newByteChannel(file)) {
                 var fileSize = sbc.size();
-                if (fileSize > UploadFileMessage.MAX_SIZE || (size += fileSize) >= UploadFileMessage.MAX_SIZE) {
+                if (fileSize > uploadMaxSize || (size += fileSize) >= uploadMaxSize) {
                     alert(UploadResult.FAILED_TITLE, UploadResult.TOO_MUCH_MSG);
                     return;
                 }

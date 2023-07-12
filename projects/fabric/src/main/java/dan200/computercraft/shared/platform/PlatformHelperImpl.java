@@ -5,6 +5,7 @@
 package dan200.computercraft.shared.platform;
 
 import com.google.auto.service.AutoService;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.arguments.ArgumentType;
@@ -27,12 +28,14 @@ import net.fabricmc.fabric.api.lookup.v1.block.BlockApiCache;
 import net.fabricmc.fabric.api.lookup.v1.block.BlockApiLookup;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.fabricmc.fabric.api.registry.FuelRegistry;
+import net.fabricmc.fabric.api.resource.conditions.v1.DefaultResourceConditions;
 import net.fabricmc.fabric.api.resource.conditions.v1.ResourceConditions;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerType;
 import net.fabricmc.fabric.api.tag.convention.v1.ConventionalItemTags;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemStorage;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.commands.synchronization.ArgumentTypeInfo;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -48,6 +51,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.tags.TagKey;
+import net.minecraft.util.GsonHelper;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -72,7 +76,6 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -82,6 +85,11 @@ import java.util.function.*;
 
 @AutoService(dan200.computercraft.impl.PlatformHelper.class)
 public class PlatformHelperImpl implements PlatformHelper {
+    @Override
+    public boolean isDevelopmentEnvironment() {
+        return FabricLoader.getInstance().isDevelopmentEnvironment();
+    }
+
     @Override
     public ConfigFile.Builder createConfigBuilder() {
         return new FabricConfigFile.Builder();
@@ -127,6 +135,17 @@ public class PlatformHelperImpl implements PlatformHelper {
     @Override
     public boolean shouldLoadResource(JsonObject object) {
         return ResourceConditions.objectMatchesConditions(object);
+    }
+
+    @Override
+    public void addRequiredModCondition(JsonObject object, String modId) {
+        var conditions = GsonHelper.getAsJsonArray(object, ResourceConditions.CONDITIONS_KEY, null);
+        if (conditions == null) {
+            conditions = new JsonArray();
+            object.add(ResourceConditions.CONDITIONS_KEY, conditions);
+        }
+
+        conditions.add(DefaultResourceConditions.allModsLoaded(modId).toJson());
     }
 
     @Override
@@ -256,12 +275,6 @@ public class PlatformHelperImpl implements PlatformHelper {
         return fuel == null ? 0 : fuel;
     }
 
-    @Nullable
-    @Override
-    public ResourceLocation getCreativeTabId(CreativeModeTab tab) {
-        return tab.getId();
-    }
-
     @Override
     public ItemStack getCraftingRemainingItem(ItemStack stack) {
         return stack.getRecipeRemainder();
@@ -290,7 +303,7 @@ public class PlatformHelperImpl implements PlatformHelper {
     public boolean hasToolUsage(ItemStack stack) {
         var item = stack.getItem();
         return item instanceof ShovelItem || stack.is(ItemTags.SHOVELS) ||
-            item instanceof HoeItem || stack.is(ItemTags.HOES);
+               item instanceof HoeItem || stack.is(ItemTags.HOES);
     }
 
     @Override
@@ -301,8 +314,8 @@ public class PlatformHelperImpl implements PlatformHelper {
     @Override
     public boolean interactWithEntity(ServerPlayer player, Entity entity, Vec3 hitPos) {
         return UseEntityCallback.EVENT.invoker().interact(player, entity.level, InteractionHand.MAIN_HAND, entity, new EntityHitResult(entity, hitPos)).consumesAction() ||
-            entity.interactAt(player, hitPos.subtract(entity.position()), InteractionHand.MAIN_HAND).consumesAction() ||
-            player.interactOn(entity, InteractionHand.MAIN_HAND).consumesAction();
+               entity.interactAt(player, hitPos.subtract(entity.position()), InteractionHand.MAIN_HAND).consumesAction() ||
+               player.interactOn(entity, InteractionHand.MAIN_HAND).consumesAction();
     }
 
     @Override
@@ -356,7 +369,6 @@ public class PlatformHelperImpl implements PlatformHelper {
             return object;
         }
 
-        @Nonnull
         @Override
         public Iterator<T> iterator() {
             return registry.iterator();

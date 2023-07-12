@@ -9,12 +9,16 @@ import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.api.filesystem.Mount;
 import dan200.computercraft.api.network.PacketNetwork;
 import dan200.computercraft.core.ComputerContext;
-import dan200.computercraft.core.computer.ComputerThread;
 import dan200.computercraft.core.computer.GlobalEnvironment;
 import dan200.computercraft.core.computer.mainthread.MainThread;
+import dan200.computercraft.core.computer.mainthread.MainThreadConfig;
 import dan200.computercraft.core.lua.CobaltLuaMachine;
 import dan200.computercraft.core.lua.ILuaMachine;
+import dan200.computercraft.core.methods.MethodSupplier;
+import dan200.computercraft.core.methods.PeripheralMethod;
 import dan200.computercraft.impl.AbstractComputerCraftAPI;
+import dan200.computercraft.impl.ApiFactories;
+import dan200.computercraft.impl.GenericSources;
 import dan200.computercraft.shared.CommonHooks;
 import dan200.computercraft.shared.computer.metrics.GlobalMetrics;
 import dan200.computercraft.shared.config.ConfigSpec;
@@ -65,12 +69,14 @@ public final class ServerContext {
     private ServerContext(MinecraftServer server) {
         this.server = server;
         storageDir = server.getWorldPath(FOLDER);
-        mainThread = new MainThread();
-        context = new ComputerContext(
-            new Environment(server),
-            new ComputerThread(ConfigSpec.computerThreads.get()),
-            mainThread, luaMachine
-        );
+        mainThread = new MainThread(mainThreadConfig);
+        context = ComputerContext.builder(new Environment(server))
+            .computerThreads(ConfigSpec.computerThreads.get())
+            .mainThreadScheduler(mainThread)
+            .luaFactory(luaMachine)
+            .apiFactories(ApiFactories.getAll())
+            .genericMethods(GenericSources.getAllMethods())
+            .build();
         idAssigner = new IDAssigner(storageDir.resolve("ids.json"));
     }
 
@@ -130,6 +136,16 @@ public final class ServerContext {
      */
     ComputerContext computerContext() {
         return context;
+    }
+
+    /**
+     * Get the {@link MethodSupplier} used to find methods on peripherals.
+     *
+     * @return The {@link PeripheralMethod} method supplier.
+     * @see ComputerContext#peripheralMethods()
+     */
+    public MethodSupplier<PeripheralMethod> peripheralMethods() {
+        return context.peripheralMethods();
     }
 
     /**
@@ -215,4 +231,16 @@ public final class ServerContext {
             return ComputerCraftAPI.MOD_ID + "/" + ComputerCraftAPI.getInstalledVersion();
         }
     }
+
+    private static final MainThreadConfig mainThreadConfig = new MainThreadConfig() {
+        @Override
+        public long maxGlobalTime() {
+            return TimeUnit.MILLISECONDS.toNanos(ConfigSpec.maxMainGlobalTime.get());
+        }
+
+        @Override
+        public long maxComputerTime() {
+            return TimeUnit.MILLISECONDS.toNanos(ConfigSpec.maxMainComputerTime.get());
+        }
+    };
 }

@@ -33,7 +33,6 @@ val publishCurseForge by tasks.registering(TaskPublishCurseForge::class) {
     enabled = apiToken != ""
 
     val mainFile = upload("282001", modPublishing.output.get().archiveFile)
-    dependsOn(modPublishing.output) // See https://github.com/Darkhax/CurseForgeGradle/pull/7.
     mainFile.changelog =
         "Release notes can be found on the [GitHub repository](https://github.com/cc-tweaked/CC-Tweaked/releases/tag/v$mcVersion-$modVersion)."
     mainFile.changelogType = "markdown"
@@ -53,7 +52,7 @@ modrinth {
     gameVersions.add(mcVersion)
     changelog.set("Release notes can be found on the [GitHub repository](https://github.com/cc-tweaked/CC-Tweaked/releases/tag/v$mcVersion-$modVersion).")
 
-    syncBodyFrom.set(provider { file("doc/mod-page.md").readText() })
+    syncBodyFrom.set(provider { rootProject.file("doc/mod-page.md").readText() })
 }
 
 tasks.publish { dependsOn(tasks.modrinth) }

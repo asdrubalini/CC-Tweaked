@@ -4,6 +4,7 @@
 
 package dan200.computercraft;
 
+import com.electronwill.nightconfig.core.file.FileConfig;
 import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.api.ForgeComputerCraftAPI;
 import dan200.computercraft.api.detail.ForgeDetailRegistries;
@@ -13,11 +14,11 @@ import dan200.computercraft.api.pocket.PocketUpgradeSerialiser;
 import dan200.computercraft.api.turtle.TurtleUpgradeSerialiser;
 import dan200.computercraft.shared.ModRegistry;
 import dan200.computercraft.shared.config.ConfigSpec;
-import dan200.computercraft.shared.platform.ForgeConfigFile;
 import dan200.computercraft.shared.details.FluidData;
 import dan200.computercraft.shared.peripheral.generic.methods.EnergyMethods;
 import dan200.computercraft.shared.peripheral.generic.methods.FluidMethods;
 import dan200.computercraft.shared.peripheral.generic.methods.InventoryMethods;
+import dan200.computercraft.shared.platform.ForgeConfigFile;
 import dan200.computercraft.shared.platform.NetworkHandler;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
@@ -47,11 +48,11 @@ public final class ComputerCraft {
     @SubscribeEvent
     public static void registerRegistries(NewRegistryEvent event) {
         event.create(new RegistryBuilder<TurtleUpgradeSerialiser<?>>()
-            .setName(TurtleUpgradeSerialiser.REGISTRY_ID.location())
+            .setName(TurtleUpgradeSerialiser.registryId().location())
             .disableSaving().disableSync());
 
         event.create(new RegistryBuilder<PocketUpgradeSerialiser<?>>()
-            .setName(PocketUpgradeSerialiser.REGISTRY_ID.location())
+            .setName(PocketUpgradeSerialiser.registryId().location())
             .disableSaving().disableSync());
     }
 
@@ -94,10 +95,12 @@ public final class ComputerCraft {
     private static void syncConfig(ModConfig config) {
         if (!config.getModId().equals(ComputerCraftAPI.MOD_ID)) return;
 
+        var path = config.getConfigData() instanceof FileConfig fileConfig ? fileConfig.getNioPath() : null;
+
         if (config.getType() == ModConfig.Type.SERVER && ((ForgeConfigFile) ConfigSpec.serverSpec).spec().isLoaded()) {
-            ConfigSpec.syncServer();
+            ConfigSpec.syncServer(path);
         } else if (config.getType() == ModConfig.Type.CLIENT) {
-            ConfigSpec.syncClient();
+            ConfigSpec.syncClient(path);
         }
     }
 }

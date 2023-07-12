@@ -10,6 +10,7 @@ import dan200.computercraft.api.peripheral.IDynamicPeripheral;
 import dan200.computercraft.api.peripheral.IPeripheral;
 import dan200.computercraft.core.computer.ComputerBootstrap;
 import dan200.computercraft.core.computer.ComputerSide;
+import dan200.computercraft.core.methods.ObjectSource;
 import org.junit.jupiter.api.Test;
 
 import javax.annotation.Nullable;
@@ -57,7 +58,7 @@ public class MethodTest {
 
     @Test
     public void testExtra() {
-        ComputerBootstrap.run("assert(extra.go, 'go')\nassert(extra.go2, 'go2')",
+        ComputerBootstrap.run("assert(extra.go() == nil, 'go')\nassert(extra.go2() == 456, 'go2')",
             x -> x.addApi(new ExtraObject()),
             50);
     }
@@ -162,7 +163,8 @@ public class MethodTest {
         }
 
         @LuaFunction
-        public final void go2() {
+        public final int go2() {
+            return 456;
         }
 
         @Override
@@ -173,11 +175,13 @@ public class MethodTest {
 
     public static class PeripheralThrow implements IPeripheral {
         @LuaFunction
+        @SuppressWarnings("DoNotCallSuggester")
         public final void thisThread() throws LuaException {
             throw new LuaException("!");
         }
 
         @LuaFunction(mainThread = true)
+        @SuppressWarnings("DoNotCallSuggester")
         public final void mainThread() throws LuaException {
             throw new LuaException("!");
         }

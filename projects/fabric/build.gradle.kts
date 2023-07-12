@@ -21,15 +21,25 @@ cct {
 }
 
 fun addRemappedConfiguration(name: String) {
+    // There was a regression in Loom 1.1 which means that targetConfigurationName doesn't do anything, and remap
+    // configurations just get added to the main source set (https://github.com/FabricMC/fabric-loom/issues/843).
+    // To get around that, we create our own source set and register a remap configuration with that. This does
+    // introduce a bit of noise, but it's not the end of the world.
+    val ourSourceSet = sourceSets.register(name) {
+        // Try to make this source set as much of a non-entity as possible.
+        listOf(allSource, java, resources, kotlin).forEach { it.setSrcDirs(emptyList<File>()) }
+    }
+    val capitalName = name.replaceFirstChar { it.titlecase(Locale.ROOT) }
+    loom.addRemapConfiguration("mod$capitalName") {
+        onCompileClasspath.set(false)
+        onRuntimeClasspath.set(true)
+        sourceSet.set(ourSourceSet)
+        targetConfigurationName.set(name)
+    }
     configurations.create(name) {
         isCanBeConsumed = false
         isCanBeResolved = true
-    }
-    val capitalName = name.capitalize(Locale.ROOT)
-    loom.addRemapConfiguration("mod$capitalName") {
-        onCompileClasspath.set(false)
-        onRuntimeClasspath.set(false)
-        targetConfigurationName.set(name)
+        extendsFrom(configurations["${name}RuntimeClasspath"])
     }
 }
 
@@ -37,6 +47,7 @@ addRemappedConfiguration("testWithSodium")
 addRemappedConfiguration("testWithIris")
 
 dependencies {
+    clientCompileOnly(variantOf(libs.emi) { classifier("api") })
     modImplementation(libs.bundles.externalMods.fabric)
     modCompileOnly(libs.bundles.externalMods.fabric.compile) {
         exclude("net.fabricmc", "fabric-loader")
@@ -54,6 +65,8 @@ dependencies {
     include(libs.cobalt)
     include(libs.jzlib)
     include(libs.netty.http)
+    include(libs.netty.socks)
+    include(libs.netty.proxy)
     include(libs.nightConfig.core)
     include(libs.nightConfig.toml)
 
@@ -65,6 +78,8 @@ dependencies {
     // in our POM, and this is the easiest way.
     runtimeOnly(libs.cobalt)
     runtimeOnly(libs.netty.http)
+    runtimeOnly(libs.netty.socks)
+    runtimeOnly(libs.netty.proxy)
 
     annotationProcessorEverywhere(libs.autoService)
 
@@ -115,7 +130,7 @@ loom {
 
         register("data") {
             configName = "Datagen"
-            server()
+            client()
 
             runDir("run/dataGen")
             property("cct.pretty-json")
@@ -161,7 +176,6 @@ tasks.processResources {
     filesMatching("fabric.mod.json") {
         expand(mapOf("version" to modVersion))
     }
-    exclude(".cache")
 }
 
 tasks.jar {
@@ -246,4 +260,8 @@ publishing {
             }
         }
     }
+}
+
+modrinth {
+    required.project("fabric-api")
 }

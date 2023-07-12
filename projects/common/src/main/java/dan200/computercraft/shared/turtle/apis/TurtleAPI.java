@@ -372,7 +372,7 @@ public class TurtleAPI implements ILuaAPI {
      * Check if there is a solid block above the turtle. In this case, solid refers to any non-air or liquid block.
      *
      * @return The turtle command result.
-     * @cc.treturn boolean If there is a solid block in front.
+     * @cc.treturn boolean If there is a solid block above.
      */
     @LuaFunction
     public final MethodResult detectUp() {
@@ -383,7 +383,7 @@ public class TurtleAPI implements ILuaAPI {
      * Check if there is a solid block below the turtle. In this case, solid refers to any non-air or liquid block.
      *
      * @return The turtle command result.
-     * @cc.treturn boolean If there is a solid block in front.
+     * @cc.treturn boolean If there is a solid block below.
      */
     @LuaFunction
     public final MethodResult detectDown() {
@@ -555,7 +555,7 @@ public class TurtleAPI implements ILuaAPI {
      * @cc.usage Refuel a turtle from the currently selected slot.
      * <pre>{@code
      * local level = turtle.getFuelLevel()
-     * if new_level == "unlimited" then error("Turtle does not need fuel", 0) end
+     * if level == "unlimited" then error("Turtle does not need fuel", 0) end
      *
      * local ok, err = turtle.refuel()
      * if ok then

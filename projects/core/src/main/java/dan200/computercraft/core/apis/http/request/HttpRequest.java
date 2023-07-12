@@ -52,12 +52,13 @@ public class HttpRequest extends Resource<HttpRequest> {
     private final ByteBuf postBuffer;
     private final HttpHeaders headers;
     private final boolean binary;
+    private final int timeout;
 
     final AtomicInteger redirects;
 
     public HttpRequest(
         ResourceGroup<HttpRequest> limiter, IAPIEnvironment environment, String address, @Nullable String postText,
-        HttpHeaders headers, boolean binary, boolean followRedirects
+        HttpHeaders headers, boolean binary, boolean followRedirects, int timeout
     ) {
         super(limiter);
         this.environment = environment;
@@ -68,6 +69,7 @@ public class HttpRequest extends Resource<HttpRequest> {
         this.headers = headers;
         this.binary = binary;
         redirects = new AtomicInteger(followRedirects ? MAX_REDIRECTS : 0);
+        this.timeout = timeout;
 
         if (postText != null) {
             if (!headers.contains(HttpHeaderNames.CONTENT_TYPE)) {
@@ -122,6 +124,7 @@ public class HttpRequest extends Resource<HttpRequest> {
             var socketAddress = NetworkUtils.getAddress(uri, ssl);
             var options = NetworkUtils.getOptions(uri.getHost(), socketAddress);
             var sslContext = ssl ? NetworkUtils.getSslContext() : null;
+            var proxy = NetworkUtils.getProxyHandler(options, timeout);
 
             // getAddress may have a slight delay, so let's perform another cancellation check.
             if (isClosed()) return;
@@ -143,20 +146,10 @@ public class HttpRequest extends Resource<HttpRequest> {
                 .handler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
-
-                        if (options.timeout > 0) {
-                            ch.config().setConnectTimeoutMillis(options.timeout);
-                        }
+                        NetworkUtils.initChannel(ch, uri, socketAddress, sslContext, proxy, timeout);
 
                         var p = ch.pipeline();
-                        p.addLast(NetworkUtils.SHAPING_HANDLER);
-                        if (sslContext != null) {
-                            p.addLast(sslContext.newHandler(ch.alloc(), uri.getHost(), socketAddress.getPort()));
-                        }
-
-                        if (options.timeout > 0) {
-                            p.addLast(new ReadTimeoutHandler(options.timeout, TimeUnit.MILLISECONDS));
-                        }
+                        if (timeout > 0) p.addLast(new ReadTimeoutHandler(timeout, TimeUnit.MILLISECONDS));
 
                         p.addLast(
                             new HttpClientCodec(),

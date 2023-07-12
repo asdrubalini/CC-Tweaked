@@ -5,19 +5,21 @@
 package dan200.computercraft.shared.config;
 
 import com.electronwill.nightconfig.core.UnmodifiableConfig;
+import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.core.CoreConfig;
 import dan200.computercraft.core.Logging;
 import dan200.computercraft.core.apis.http.NetworkUtils;
-import dan200.computercraft.core.apis.http.options.Action;
+import dan200.computercraft.core.apis.http.options.ProxyType;
+import dan200.computercraft.core.computer.mainthread.MainThreadConfig;
 import dan200.computercraft.shared.peripheral.monitor.MonitorRenderer;
 import dan200.computercraft.shared.platform.PlatformHelper;
+import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.Filter;
-import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.filter.MarkerFilter;
 
-import java.util.Arrays;
+import javax.annotation.Nullable;
+import java.nio.file.Path;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 public final class ConfigSpec {
@@ -32,6 +34,8 @@ public final class ConfigSpec {
     public static final ConfigFile.Value<String> defaultComputerSettings;
     public static final ConfigFile.Value<Boolean> logComputerErrors;
     public static final ConfigFile.Value<Boolean> commandRequireCreative;
+    public static final ConfigFile.Value<Integer> uploadMaxSize;
+    public static final ConfigFile.Value<List<? extends String>> disabledGenericMethods;
 
     public static final ConfigFile.Value<Integer> computerThreads;
     public static final ConfigFile.Value<Integer> maxMainGlobalTime;
@@ -46,6 +50,10 @@ public final class ConfigSpec {
 
     public static final ConfigFile.Value<Integer> httpDownloadBandwidth;
     public static final ConfigFile.Value<Integer> httpUploadBandwidth;
+
+    public static final ConfigFile.Value<ProxyType> httpProxyType;
+    public static final ConfigFile.Value<String> httpProxyHost;
+    public static final ConfigFile.Value<Integer> httpProxyPort;
 
     public static final ConfigFile.Value<Boolean> commandBlockEnabled;
     public static final ConfigFile.Value<Integer> modemRange;
@@ -81,7 +89,9 @@ public final class ConfigSpec {
     }
 
     static {
-        LoggerContext.getContext().addFilter(logFilter);
+        if (LogManager.getContext(false) instanceof org.apache.logging.log4j.core.LoggerContext context) {
+            context.addFilter(logFilter);
+        }
 
         var builder = PlatformHelper.get().createConfigBuilder();
 
@@ -93,6 +103,13 @@ public final class ConfigSpec {
             floppySpaceLimit = builder
                 .comment("The disk space limit for floppy disks, in bytes.")
                 .define("floppy_space_limit", Config.floppySpaceLimit);
+
+            uploadMaxSize = builder
+                .comment("""
+                    The file upload size limit, in bytes. Must be in range of 1 KiB and 16 MiB.
+                    Keep in mind that uploads are processed in a single tick - large files or
+                    poor network performance can stall the networking thread. And mind the disk space!""")
+                .defineInRange("upload_max_size", Config.uploadMaxSize, 1024, 16 * 1024 * 1024);
 
             maximumFilesOpen = builder
                 .comment("Set how many files a computer can have open at the same time. Set to 0 for unlimited.")
@@ -123,6 +140,19 @@ public final class ConfigSpec {
                     Require players to be in creative mode and be opped in order to interact with
                     command computers. This is the default behaviour for vanilla's Command blocks.""")
                 .define("command_require_creative", Config.commandRequireCreative);
+
+            disabledGenericMethods = builder
+                .comment("""
+                    A list of generic methods or method sources to disable. Generic methods are
+                    methods added to a block/block entity when there is no explicit peripheral
+                    provider. This includes inventory methods (i.e. inventory.getItemDetail,
+                    inventory.pushItems), and (if on Forge), the fluid_storage and energy_storage
+                    methods.
+                    Methods in this list can either be a whole group of methods (computercraft:inventory)
+                    or a single method (computercraft:inventory#pushItems).
+                    """)
+                .worldRestart()
+                .defineList("disabled_generic_methods", List.of(), x -> x instanceof String);
         }
 
         {
@@ -145,14 +175,14 @@ public final class ConfigSpec {
                     milliseconds.
                     Note, we will quite possibly go over this limit, as there's no way to tell how
                     long a will take - this aims to be the upper bound of the average time.""")
-                .defineInRange("max_main_global_time", (int) TimeUnit.NANOSECONDS.toMillis(CoreConfig.maxMainGlobalTime), 1, Integer.MAX_VALUE);
+                .defineInRange("max_main_global_time", (int) TimeUnit.NANOSECONDS.toMillis(MainThreadConfig.DEFAULT_MAX_GLOBAL_TIME), 1, Integer.MAX_VALUE);
 
             maxMainComputerTime = builder
                 .comment("""
                     The ideal maximum time a computer can execute for in a tick, in milliseconds.
                     Note, we will quite possibly go over this limit, as there's no way to tell how
                     long a will take - this aims to be the upper bound of the average time.""")
-                .defineInRange("max_main_computer_time", (int) TimeUnit.NANOSECONDS.toMillis(CoreConfig.maxMainComputerTime), 1, Integer.MAX_VALUE);
+                .defineInRange("max_main_computer_time", (int) TimeUnit.NANOSECONDS.toMillis(MainThreadConfig.DEFAULT_MAX_COMPUTER_TIME), 1, Integer.MAX_VALUE);
 
             builder.pop();
         }
@@ -163,9 +193,9 @@ public final class ConfigSpec {
 
             httpEnabled = builder
                 .comment("""
-                    Enable the "http" API on Computers. This also disables the "pastebin" and "wget"
-                    programs, that many users rely on. It's recommended to leave this on and use the
-                    "rules" config option to impose more fine-grained control.""")
+                    Enable the "http" API on Computers. Disabling this also disables the "pastebin" and
+                    "wget" programs, that many users rely on. It's recommended to leave this on and use
+                    the "rules" config option to impose more fine-grained control.""")
                 .define("enabled", CoreConfig.httpEnabled);
 
             httpWebsocketEnabled = builder
@@ -175,16 +205,23 @@ public final class ConfigSpec {
             httpRules = builder
                 .comment("""
                     A list of rules which control behaviour of the "http" API for specific domains or
-                    IPs. Each rule is an item with a 'host' to match against, and a series of
-                    properties. Rules are evaluated in order, meaning earlier rules override later
-                    ones.
-                    The host may be a domain name ("pastebin.com"), wildcard ("*.pastebin.com") or
-                    CIDR notation ("127.0.0.0/8").
-                    If no rules, the domain is blocked.""")
-                .defineList("rules", Arrays.asList(
-                    AddressRuleConfig.makeRule("$private", Action.DENY),
-                    AddressRuleConfig.makeRule("*", Action.ALLOW)
-                ), x -> x instanceof UnmodifiableConfig && AddressRuleConfig.checkRule((UnmodifiableConfig) x));
+                    IPs. Each rule matches against a hostname and an optional port, and then sets several
+                    properties for the request.  Rules are evaluated in order, meaning earlier rules override
+                    later ones.
+
+                    Valid properties:
+                     - "host" (required): The domain or IP address this rule matches. This may be a domain name
+                       ("pastebin.com"), wildcard ("*.pastebin.com") or CIDR notation ("127.0.0.0/8").
+                     - "port" (optional): Only match requests for a specific port, such as 80 or 443.
+
+                     - "action" (optional): Whether to allow or deny this request.
+                     - "max_download" (optional): The maximum size (in bytes) that a computer can download in this
+                       request.
+                     - "max_upload" (optional): The maximum size (in bytes) that a computer can upload in a this request.
+                     - "max_websocket_message" (optional): The maximum size (in bytes) that a computer can send or
+                       receive in one websocket packet.
+                     - "use_proxy" (optional): Enable use of the HTTP/SOCKS proxy if it is configured.""")
+                .defineList("rules", AddressRuleConfig.defaultRules(), x -> x instanceof UnmodifiableConfig);
 
             httpMaxRequests = builder
                 .comment("""
@@ -208,6 +245,30 @@ public final class ConfigSpec {
             httpUploadBandwidth = builder
                 .comment("The number of bytes which can be uploaded in a second. This is shared across all computers. (bytes/s).")
                 .defineInRange("global_upload", CoreConfig.httpUploadBandwidth, 1, Integer.MAX_VALUE);
+
+            builder.pop();
+
+            builder
+                .comment("""
+                    Tunnels HTTP and websocket requests through a proxy server. Only affects HTTP
+                    rules with "use_proxy" set to true (off by default).
+                    If authentication is required for the proxy, create a "computercraft-proxy.pw"
+                    file in the same directory as "computercraft-server.toml", containing the
+                    username and password separated by a colon, e.g. "myuser:mypassword". For
+                    SOCKS4 proxies only the username is required.""")
+                .push("proxy");
+
+            httpProxyType = builder
+                .comment("The type of proxy to use.")
+                .defineEnum("type", CoreConfig.httpProxyType);
+
+            httpProxyHost = builder
+                .comment("The hostname or IP address of the proxy server.")
+                .define("host", CoreConfig.httpProxyHost);
+
+            httpProxyPort = builder
+                .comment("The port of the proxy server.")
+                .defineInRange("port", CoreConfig.httpProxyPort, 1, 65536);
 
             builder.pop();
 
@@ -328,18 +389,15 @@ public final class ConfigSpec {
         clientSpec = clientBuilder.build(ConfigSpec::syncClient);
     }
 
-    public static void syncServer() {
+    public static void syncServer(@Nullable Path path) {
         // General
         Config.computerSpaceLimit = computerSpaceLimit.get();
         Config.floppySpaceLimit = floppySpaceLimit.get();
+        Config.uploadMaxSize = uploadMaxSize.get();
         CoreConfig.maximumFilesOpen = maximumFilesOpen.get();
         CoreConfig.disableLua51Features = disableLua51Features.get();
         CoreConfig.defaultComputerSettings = defaultComputerSettings.get();
         Config.commandRequireCreative = commandRequireCreative.get();
-
-        // Execution
-        CoreConfig.maxMainGlobalTime = TimeUnit.MILLISECONDS.toNanos(maxMainGlobalTime.get());
-        CoreConfig.maxMainComputerTime = TimeUnit.MILLISECONDS.toNanos(maxMainComputerTime.get());
 
         // Update our log filter if needed.
         var logFilter = MarkerFilter.createFilter(
@@ -347,21 +405,28 @@ public final class ConfigSpec {
             logComputerErrors.get() ? Filter.Result.ACCEPT : Filter.Result.DENY,
             Filter.Result.NEUTRAL
         );
-        if (!logFilter.equals(ConfigSpec.logFilter)) {
-            LoggerContext.getContext().removeFilter(ConfigSpec.logFilter);
-            LoggerContext.getContext().addFilter(ConfigSpec.logFilter = logFilter);
+        if (!logFilter.equals(ConfigSpec.logFilter) && LogManager.getContext(false) instanceof org.apache.logging.log4j.core.LoggerContext context) {
+            context.removeFilter(ConfigSpec.logFilter);
+            context.addFilter(ConfigSpec.logFilter = logFilter);
         }
 
         // HTTP
         CoreConfig.httpEnabled = httpEnabled.get();
         CoreConfig.httpWebsocketEnabled = httpWebsocketEnabled.get();
-        CoreConfig.httpRules = httpRules.get().stream()
-            .map(AddressRuleConfig::parseRule).filter(Objects::nonNull).toList();
+
+        CoreConfig.httpRules = httpRules.get().stream().map(AddressRuleConfig::parseRule).toList();
 
         CoreConfig.httpMaxRequests = httpMaxRequests.get();
         CoreConfig.httpMaxWebsockets = httpMaxWebsockets.get();
         CoreConfig.httpDownloadBandwidth = httpDownloadBandwidth.get();
         CoreConfig.httpUploadBandwidth = httpUploadBandwidth.get();
+
+        CoreConfig.httpProxyType = httpProxyType.get();
+        CoreConfig.httpProxyHost = httpProxyHost.get();
+        CoreConfig.httpProxyPort = httpProxyPort.get();
+
+        if (path != null) ProxyPasswordConfig.init(path.resolveSibling(ComputerCraftAPI.MOD_ID + "-proxy.pw"));
+
         NetworkUtils.reloadConfig();
 
         // Peripheral
@@ -388,7 +453,7 @@ public final class ConfigSpec {
         Config.monitorHeight = monitorHeight.get();
     }
 
-    public static void syncClient() {
+    public static void syncClient(@Nullable Path path) {
         Config.monitorRenderer = monitorRenderer.get();
         Config.monitorDistance = monitorDistance.get();
         Config.uploadNagDelay = uploadNagDelay.get();

@@ -7,6 +7,7 @@ import cc.tweaked.gradle.clientClasses
 import cc.tweaked.gradle.commonClasses
 
 plugins {
+    id("cc-tweaked.publishing")
     id("cc-tweaked.vanilla")
     id("cc-tweaked.gametest")
 }
@@ -25,6 +26,7 @@ dependencies {
     clientImplementation(clientClasses(project(":common-api")))
 
     compileOnly(libs.bundles.externalMods.common)
+    clientCompileOnly(variantOf(libs.emi) { classifier("api") })
 
     compileOnly(libs.mixin)
     annotationProcessorEverywhere(libs.autoService)

@@ -37,20 +37,35 @@ java {
 
 repositories {
     mavenCentral()
-    maven("https://squiddev.cc/maven") {
+
+    val mainMaven = maven("https://squiddev.cc/maven") {
         name = "SquidDev"
         content {
-            includeGroup("org.squiddev")
-            includeGroup("cc.tweaked")
-            // Things we mirror
-            includeGroup("dev.architectury")
-            includeGroup("maven.modrinth")
-            includeGroup("me.shedaniel")
-            includeGroup("me.shedaniel.cloth")
-            includeGroup("mezz.jei")
-            includeModule("com.terraformersmc", "modmenu")
             // Until https://github.com/SpongePowered/Mixin/pull/593 is merged
             includeModule("org.spongepowered", "mixin")
+        }
+    }
+
+    exclusiveContent {
+        forRepositories(mainMaven)
+
+        // Include the ForgeGradle repository if present. This requires that ForgeGradle is already present, which we
+        // enforce in our Forge overlay.
+        val fg =
+            project.extensions.findByType(net.minecraftforge.gradle.userdev.DependencyManagementExtension::class.java)
+        if (fg != null) forRepositories(fg.repository)
+
+        filter {
+            includeGroup("cc.tweaked")
+            includeModule("org.squiddev", "Cobalt")
+            // Things we mirror
+            includeGroup("dev.architectury")
+            includeGroup("dev.emi")
+            includeGroup("maven.modrinth")
+            includeGroup("me.shedaniel.cloth")
+            includeGroup("me.shedaniel")
+            includeGroup("mezz.jei")
+            includeModule("com.terraformersmc", "modmenu")
         }
     }
 }
@@ -104,6 +119,7 @@ tasks.withType(JavaCompile::class.java).configureEach {
 
 tasks.processResources {
     exclude("**/*.license")
+    exclude(".cache")
 }
 
 tasks.withType(AbstractArchiveTask::class.java).configureEach {

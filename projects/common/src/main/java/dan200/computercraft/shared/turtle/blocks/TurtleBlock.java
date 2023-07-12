@@ -5,15 +5,15 @@
 package dan200.computercraft.shared.turtle.blocks;
 
 import dan200.computercraft.annotations.ForgeOverride;
+import dan200.computercraft.api.turtle.ITurtleUpgrade;
 import dan200.computercraft.api.turtle.TurtleSide;
-import dan200.computercraft.mixin.ExplosionAccessor;
+import dan200.computercraft.api.upgrades.UpgradeData;
 import dan200.computercraft.shared.computer.blocks.AbstractComputerBlock;
 import dan200.computercraft.shared.computer.blocks.AbstractComputerBlockEntity;
 import dan200.computercraft.shared.computer.core.ComputerFamily;
 import dan200.computercraft.shared.platform.RegistryEntry;
 import dan200.computercraft.shared.turtle.core.TurtleBrain;
-import dan200.computercraft.shared.turtle.items.ITurtleItem;
-import dan200.computercraft.shared.turtle.items.TurtleItemFactory;
+import dan200.computercraft.shared.turtle.items.TurtleItem;
 import dan200.computercraft.shared.util.BlockEntityHelpers;
 import dan200.computercraft.shared.util.WaterloggableHelpers;
 import net.minecraft.core.BlockPos;
@@ -127,10 +127,10 @@ public class TurtleBlock extends AbstractComputerBlock<TurtleBlockEntity> implem
         if (!world.isClientSide && tile instanceof TurtleBlockEntity turtle) {
             if (entity instanceof Player player) turtle.setOwningPlayer(player.getGameProfile());
 
-            if (stack.getItem() instanceof ITurtleItem item) {
+            if (stack.getItem() instanceof TurtleItem item) {
                 // Set Upgrades
                 for (var side : TurtleSide.values()) {
-                    turtle.getAccess().setUpgrade(side, item.getUpgrade(stack, side));
+                    turtle.getAccess().setUpgradeWithData(side, item.getUpgradeWithData(stack, side));
                 }
 
                 turtle.getAccess().setFuelLevel(item.getFuelLevel(stack));
@@ -148,7 +148,7 @@ public class TurtleBlock extends AbstractComputerBlock<TurtleBlockEntity> implem
 
     @ForgeOverride
     public float getExplosionResistance(BlockState state, BlockGetter world, BlockPos pos, Explosion explosion) {
-        var exploder = ((ExplosionAccessor) explosion).computercraft$getExploder();
+        var exploder = explosion.getDirectSourceEntity();
         if (getFamily() == ComputerFamily.ADVANCED || exploder instanceof LivingEntity || exploder instanceof AbstractHurtingProjectile) {
             return 2000;
         }
@@ -158,7 +158,19 @@ public class TurtleBlock extends AbstractComputerBlock<TurtleBlockEntity> implem
 
     @Override
     protected ItemStack getItem(AbstractComputerBlockEntity tile) {
-        return tile instanceof TurtleBlockEntity turtle ? TurtleItemFactory.create(turtle) : ItemStack.EMPTY;
+        if (!(tile instanceof TurtleBlockEntity turtle)) return ItemStack.EMPTY;
+
+        var access = turtle.getAccess();
+        return TurtleItem.create(
+            turtle.getComputerID(), turtle.getLabel(), access.getColour(), turtle.getFamily(),
+            withPersistedData(access.getUpgradeWithData(TurtleSide.LEFT)),
+            withPersistedData(access.getUpgradeWithData(TurtleSide.RIGHT)),
+            access.getFuelLevel(), turtle.getOverlay()
+        );
+    }
+
+    private static @Nullable UpgradeData<ITurtleUpgrade> withPersistedData(@Nullable UpgradeData<ITurtleUpgrade> upgrade) {
+        return upgrade == null ? null : UpgradeData.of(upgrade.upgrade(), upgrade.upgrade().getPersistedData(upgrade.data()));
     }
 
     @Override

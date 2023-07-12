@@ -23,7 +23,6 @@ import java.util.regex.Pattern;
 public final class AddressRule {
     public static final long MAX_DOWNLOAD = 16 * 1024 * 1024;
     public static final long MAX_UPLOAD = 4 * 1024 * 1024;
-    public static final int TIMEOUT = 30_000;
     public static final int WEBSOCKET_MESSAGE = 128 * 1024;
 
     private final AddressPredicate predicate;
@@ -36,14 +35,13 @@ public final class AddressRule {
         this.port = port;
     }
 
-    @Nullable
     public static AddressRule parse(String filter, OptionalInt port, PartialOptions partial) {
         var cidr = filter.indexOf('/');
         if (cidr >= 0) {
             var addressStr = filter.substring(0, cidr);
             var prefixSizeStr = filter.substring(cidr + 1);
             var range = HostRange.parse(addressStr, prefixSizeStr);
-            return range == null ? null : new AddressRule(range, port, partial);
+            return new AddressRule(range, port, partial);
         } else if (filter.equalsIgnoreCase("$private")) {
             return new AddressRule(PrivatePattern.INSTANCE, port, partial);
         } else {

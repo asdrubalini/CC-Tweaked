@@ -6,6 +6,7 @@ package dan200.computercraft.data;
 
 import com.google.gson.JsonObject;
 import dan200.computercraft.api.ComputerCraftAPI;
+import dan200.computercraft.api.ComputerCraftTags;
 import dan200.computercraft.api.pocket.PocketUpgradeDataProvider;
 import dan200.computercraft.api.turtle.TurtleUpgradeDataProvider;
 import dan200.computercraft.api.upgrades.UpgradeBase;
@@ -20,6 +21,7 @@ import dan200.computercraft.shared.platform.RegistryWrappers;
 import net.minecraft.data.CachedOutput;
 import net.minecraft.data.DataProvider;
 import net.minecraft.data.PackOutput;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 
@@ -96,6 +98,12 @@ public final class LanguageProvider implements DataProvider {
         add(ModRegistry.Items.POCKET_COMPUTER_NORMAL.get().getDescriptionId() + ".upgraded", "%s Pocket Computer");
         add(ModRegistry.Items.POCKET_COMPUTER_ADVANCED.get(), "Advanced Pocket Computer");
         add(ModRegistry.Items.POCKET_COMPUTER_ADVANCED.get().getDescriptionId() + ".upgraded", "Advanced %s Pocket Computer");
+
+        // Tags (for EMI)
+        add(ComputerCraftTags.Items.COMPUTER, "Computers");
+        add(ComputerCraftTags.Items.TURTLE, "Turtles");
+        add(ComputerCraftTags.Items.WIRED_MODEM, "Wired modems");
+        add(ComputerCraftTags.Items.MONITOR, "Monitors");
 
         // Turtle/pocket upgrades
         add("upgrade.minecraft.diamond_sword.adjective", "Melee");
@@ -208,11 +216,13 @@ public final class LanguageProvider implements DataProvider {
         // Config options
         addConfigEntry(ConfigSpec.computerSpaceLimit, "Computer space limit (bytes)");
         addConfigEntry(ConfigSpec.floppySpaceLimit, "Floppy Disk space limit (bytes)");
+        addConfigEntry(ConfigSpec.uploadMaxSize, "File upload size limit (bytes)");
         addConfigEntry(ConfigSpec.maximumFilesOpen, "Maximum files open per computer");
         addConfigEntry(ConfigSpec.disableLua51Features, "Disable Lua 5.1 features");
         addConfigEntry(ConfigSpec.defaultComputerSettings, "Default Computer settings");
         addConfigEntry(ConfigSpec.logComputerErrors, "Log computer errors");
         addConfigEntry(ConfigSpec.commandRequireCreative, "Command computers require creative");
+        addConfigEntry(ConfigSpec.disabledGenericMethods, "Disabled generic methods");
 
         addConfigGroup(ConfigSpec.serverSpec, "execution", "Execution");
         addConfigEntry(ConfigSpec.computerThreads, "Computer threads");
@@ -228,6 +238,11 @@ public final class LanguageProvider implements DataProvider {
         addConfigGroup(ConfigSpec.serverSpec, "http.bandwidth", "Bandwidth");
         addConfigEntry(ConfigSpec.httpDownloadBandwidth, "Global download limit");
         addConfigEntry(ConfigSpec.httpUploadBandwidth, "Global upload limit");
+
+        addConfigGroup(ConfigSpec.serverSpec, "http.proxy", "Proxy");
+        addConfigEntry(ConfigSpec.httpProxyHost, "Host name");
+        addConfigEntry(ConfigSpec.httpProxyPort, "Port");
+        addConfigEntry(ConfigSpec.httpProxyType, "Proxy type");
 
         addConfigGroup(ConfigSpec.serverSpec, "peripheral", "Peripherals");
         addConfigEntry(ConfigSpec.commandBlockEnabled, "Enable command block peripheral");
@@ -290,6 +305,10 @@ public final class LanguageProvider implements DataProvider {
 
     private void add(Metric metric, String text) {
         add(AggregatedMetric.TRANSLATION_PREFIX + metric.name() + ".name", text);
+    }
+
+    private void add(TagKey<Item> tag, String text) {
+        add("tag.item." + tag.location().getNamespace() + "." + tag.location().getPath(), text);
     }
 
     private void addConfigGroup(ConfigFile spec, String path, String text) {

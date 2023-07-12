@@ -273,7 +273,7 @@ end
 --- Combine a three-colour RGB value into one hexadecimal representation.
 --
 -- @tparam number r The red channel, should be between 0 and 1.
--- @tparam number g The red channel, should be between 0 and 1.
+-- @tparam number g The green channel, should be between 0 and 1.
 -- @tparam number b The blue channel, should be between 0 and 1.
 -- @treturn number The combined hexadecimal colour.
 -- @usage
@@ -296,7 +296,7 @@ end
 --
 -- @tparam number rgb The combined hexadecimal colour.
 -- @treturn number The red channel, will be between 0 and 1.
--- @treturn number The red channel, will be between 0 and 1.
+-- @treturn number The green channel, will be between 0 and 1.
 -- @treturn number The blue channel, will be between 0 and 1.
 -- @usage
 -- ```lua
@@ -351,15 +351,45 @@ for i = 0, 15 do
     color_hex_lookup[2 ^ i] = string.format("%x", i)
 end
 
---- Converts the given color to a paint/blit hex character (0-9a-f).
---
--- This is equivalent to converting floor(log_2(color)) to hexadecimal.
---
--- @tparam number color The color to convert.
--- @treturn string The blit hex code of the color.
--- @since 1.94.0
+--[[- Converts the given color to a paint/blit hex character (0-9a-f).
+
+This is equivalent to converting floor(log_2(color)) to hexadecimal.
+
+@tparam number color The color to convert.
+@treturn string The blit hex code of the color.
+@usage
+```lua
+colors.toBlit(colors.red)
+-- => "c"
+```
+@see colors.fromBlit
+@since 1.94.0
+]]
 function toBlit(color)
     expect(1, color, "number")
-    return color_hex_lookup[color] or
-        string.format("%x", math.floor(math.log(color) / math.log(2)))
+    return color_hex_lookup[color] or string.format("%x", math.floor(math.log(color, 2)))
+end
+
+--[[- Converts the given paint/blit hex character (0-9a-f) to a color.
+
+This is equivalent to converting the hex character to a number and then 2 ^ decimal
+
+@tparam string hex The paint/blit hex character to convert
+@treturn number The color
+@usage
+```lua
+colors.fromBlit("e")
+-- => 16384
+```
+@see colors.toBlit
+@since 1.105.0
+]]
+function fromBlit(hex)
+    expect(1, hex, "string")
+
+    if #hex ~= 1 then return nil end
+    local value = tonumber(hex, 16)
+    if not value then return nil end
+
+    return 2 ^ value
 end
