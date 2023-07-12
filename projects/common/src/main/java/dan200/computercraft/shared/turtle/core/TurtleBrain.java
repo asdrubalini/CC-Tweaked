@@ -317,7 +317,6 @@ public class TurtleBrain implements TurtleAccessInternal {
         return false;
     }
 
-    @Override
     public Vec3 getVisualPosition(float f) {
         var offset = getRenderOffset(f);
         var pos = owner.getBlockPos();
@@ -328,7 +327,6 @@ public class TurtleBrain implements TurtleAccessInternal {
         );
     }
 
-    @Override
     public float getVisualYaw(float f) {
         var yaw = getDirection().toYRot();
         switch (animation) {

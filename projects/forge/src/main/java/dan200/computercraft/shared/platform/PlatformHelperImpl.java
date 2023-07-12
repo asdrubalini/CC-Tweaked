@@ -40,6 +40,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.UseOnContext;
@@ -278,6 +279,11 @@ public class PlatformHelperImpl implements PlatformHelper {
     }
 
     @Override
+    public CreativeModeTab.Builder newCreativeModeTab() {
+        return CreativeModeTab.builder();
+    }
+
+    @Override
     public ItemStack getCraftingRemainingItem(ItemStack stack) {
         return stack.getCraftingRemainingItem();
     }
@@ -334,7 +340,7 @@ public class PlatformHelperImpl implements PlatformHelper {
 
     @Override
     public InteractionResult useOn(ServerPlayer player, ItemStack stack, BlockHitResult hit, Predicate<BlockState> canUseBlock) {
-        var level = player.level;
+        var level = player.level();
         var pos = hit.getBlockPos();
         var event = ForgeHooks.onRightClickBlock(player, InteractionHand.MAIN_HAND, pos, hit);
         if (event.isCanceled()) return event.getCancellationResult();

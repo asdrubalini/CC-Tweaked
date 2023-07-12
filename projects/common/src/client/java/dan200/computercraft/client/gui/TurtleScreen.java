@@ -4,8 +4,6 @@
 
 package dan200.computercraft.client.gui;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.PoseStack;
 import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.client.gui.widgets.ComputerSidebar;
 import dan200.computercraft.client.gui.widgets.TerminalWidget;
@@ -13,6 +11,7 @@ import dan200.computercraft.client.render.ComputerBorderRenderer;
 import dan200.computercraft.shared.computer.core.ComputerFamily;
 import dan200.computercraft.shared.computer.inventory.AbstractComputerMenu;
 import dan200.computercraft.shared.turtle.inventory.TurtleMenu;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
@@ -44,23 +43,22 @@ public class TurtleScreen extends AbstractComputerScreen<TurtleMenu> {
     }
 
     @Override
-    protected void renderBg(PoseStack transform, float partialTicks, int mouseX, int mouseY) {
+    protected void renderBg(GuiGraphics graphics, float partialTicks, int mouseX, int mouseY) {
         var advanced = family == ComputerFamily.ADVANCED;
-        RenderSystem.setShaderTexture(0, advanced ? BACKGROUND_ADVANCED : BACKGROUND_NORMAL);
-        blit(transform, leftPos + AbstractComputerMenu.SIDEBAR_WIDTH, topPos, 0, 0, 0, TEX_WIDTH, TEX_HEIGHT, FULL_TEX_SIZE, FULL_TEX_SIZE);
+        var texture = advanced ? BACKGROUND_ADVANCED : BACKGROUND_NORMAL;
+        graphics.blit(texture, leftPos + AbstractComputerMenu.SIDEBAR_WIDTH, topPos, 0, 0, 0, TEX_WIDTH, TEX_HEIGHT, FULL_TEX_SIZE, FULL_TEX_SIZE);
 
         // Render selected slot
         var slot = getMenu().getSelectedSlot();
         if (slot >= 0) {
             var slotX = slot % 4;
             var slotY = slot / 4;
-            blit(transform,
+            graphics.blit(texture,
                 leftPos + TURTLE_START_X - 2 + slotX * 18, topPos + PLAYER_START_Y - 2 + slotY * 18, 0,
                 0, 217, 24, 24, FULL_TEX_SIZE, FULL_TEX_SIZE
             );
         }
 
-        RenderSystem.setShaderTexture(0, advanced ? ComputerBorderRenderer.BACKGROUND_ADVANCED : ComputerBorderRenderer.BACKGROUND_NORMAL);
-        ComputerSidebar.renderBackground(transform, leftPos, topPos + sidebarYOffset);
+        ComputerSidebar.renderBackground(graphics, ComputerBorderRenderer.getTexture(family), leftPos, topPos + sidebarYOffset);
     }
 }
