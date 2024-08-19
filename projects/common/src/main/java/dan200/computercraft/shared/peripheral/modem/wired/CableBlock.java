@@ -4,12 +4,13 @@
 
 package dan200.computercraft.shared.peripheral.modem.wired;
 
-import com.google.common.collect.ImmutableMap;
 import dan200.computercraft.annotations.ForgeOverride;
 import dan200.computercraft.shared.ModRegistry;
+import dan200.computercraft.shared.peripheral.modem.ModemShapes;
 import dan200.computercraft.shared.platform.PlatformHelper;
 import dan200.computercraft.shared.util.WaterloggableHelpers;
 import dan200.computercraft.shared.util.WorldUtil;
+import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -52,12 +53,14 @@ public class CableBlock extends Block implements SimpleWaterloggedBlock, EntityB
     public static final BooleanProperty UP = BooleanProperty.create("up");
     public static final BooleanProperty DOWN = BooleanProperty.create("down");
 
-    static final EnumMap<Direction, BooleanProperty> CONNECTIONS =
-        new EnumMap<>(new ImmutableMap.Builder<Direction, BooleanProperty>()
-            .put(Direction.DOWN, DOWN).put(Direction.UP, UP)
-            .put(Direction.NORTH, NORTH).put(Direction.SOUTH, SOUTH)
-            .put(Direction.WEST, WEST).put(Direction.EAST, EAST)
-            .build());
+    static final EnumMap<Direction, BooleanProperty> CONNECTIONS = Util.make(new EnumMap<>(Direction.class), m -> {
+        m.put(Direction.DOWN, DOWN);
+        m.put(Direction.UP, UP);
+        m.put(Direction.NORTH, NORTH);
+        m.put(Direction.SOUTH, SOUTH);
+        m.put(Direction.WEST, WEST);
+        m.put(Direction.EAST, EAST);
+    });
 
     public CableBlock(Properties settings) {
         super(settings);
@@ -125,9 +128,8 @@ public class CableBlock extends Block implements SimpleWaterloggedBlock, EntityB
             item = new ItemStack(ModRegistry.Items.CABLE.get());
         }
 
-        world.setBlock(pos, correctConnections(world, pos, newState), 3);
+        world.setBlockAndUpdate(pos, correctConnections(world, pos, newState));
 
-        cable.modemChanged();
         cable.connectionsChanged();
         if (!world.isClientSide && !player.getAbilities().instabuild) {
             Block.popResource(world, pos, item);
@@ -160,10 +162,7 @@ public class CableBlock extends Block implements SimpleWaterloggedBlock, EntityB
     @Override
     public void setPlacedBy(Level world, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
         var tile = world.getBlockEntity(pos);
-        if (tile instanceof CableBlockEntity cable) {
-            if (cable.hasCable()) cable.connectionsChanged();
-        }
-
+        if (tile instanceof CableBlockEntity cable && cable.hasCable()) cable.connectionsChanged();
         super.setPlacedBy(world, pos, state, placer, stack);
     }
 
@@ -175,14 +174,37 @@ public class CableBlock extends Block implements SimpleWaterloggedBlock, EntityB
 
     @Override
     @Deprecated
-    public BlockState updateShape(BlockState state, Direction side, BlockState otherState, LevelAccessor world, BlockPos pos, BlockPos otherPos) {
-        WaterloggableHelpers.updateShape(state, world, pos);
+    public BlockState updateShape(BlockState state, Direction side, BlockState otherState, LevelAccessor level, BlockPos pos, BlockPos otherPos) {
+        WaterloggableHelpers.updateShape(state, level, pos);
+
         // Should never happen, but handle the case where we've no modem or cable.
         if (!state.getValue(CABLE) && state.getValue(MODEM) == CableModemVariant.None) {
             return getFluidState(state).createLegacyBlock();
         }
 
-        return world instanceof Level level ? state.setValue(CONNECTIONS.get(side), doesConnectVisually(state, level, pos, side)) : state;
+        // Pop our modem if needed.
+        var dir = state.getValue(MODEM).getFacing();
+        if (dir != null && dir.equals(side) && !ModemShapes.canSupport(level, otherPos, side.getOpposite())) {
+            // If we've no cable, follow normal Minecraft logic and just remove the block.
+            if (!state.getValue(CABLE)) return getFluidState(state).createLegacyBlock();
+
+            // Otherwise remove the cable and drop the modem manually.
+            state = state.setValue(CableBlock.MODEM, CableModemVariant.None);
+            if (level instanceof Level actualLevel) {
+                Block.popResource(actualLevel, pos, new ItemStack(ModRegistry.Items.WIRED_MODEM.get()));
+            }
+
+            if (level.getBlockEntity(pos) instanceof CableBlockEntity cable) cable.scheduleConnectionsChanged();
+        }
+
+        var modem = state.getValue(MODEM);
+        if (modem.getFacing() == side && modem.isPeripheralOn() && level.getBlockEntity(pos) instanceof CableBlockEntity cable) {
+            cable.queueRefreshPeripheral();
+        }
+
+        return level instanceof Level actualLevel
+            ? state.setValue(CONNECTIONS.get(side), doesConnectVisually(state, actualLevel, pos, side))
+            : state;
     }
 
     @Override
@@ -191,7 +213,7 @@ public class CableBlock extends Block implements SimpleWaterloggedBlock, EntityB
         var facing = state.getValue(MODEM).getFacing();
         if (facing == null) return true;
 
-        return canSupportCenter(world, pos.relative(facing), facing.getOpposite());
+        return ModemShapes.canSupport(world, pos.relative(facing), facing.getOpposite());
     }
 
     @Nullable
@@ -228,6 +250,7 @@ public class CableBlock extends Block implements SimpleWaterloggedBlock, EntityB
     @Override
     @Deprecated
     public final InteractionResult use(BlockState state, Level world, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
+        if (player.isCrouching() || !player.mayBuild()) return InteractionResult.PASS;
         return world.getBlockEntity(pos) instanceof CableBlockEntity modem ? modem.use(player) : InteractionResult.PASS;
     }
 

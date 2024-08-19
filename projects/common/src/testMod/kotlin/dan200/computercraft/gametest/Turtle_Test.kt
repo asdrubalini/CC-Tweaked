@@ -27,6 +27,7 @@ import dan200.computercraft.shared.util.WaterloggableHelpers
 import dan200.computercraft.test.core.assertArrayEquals
 import dan200.computercraft.test.core.computer.LuaTaskContext
 import dan200.computercraft.test.core.computer.getApi
+import dan200.computercraft.test.shared.ItemStackMatcher.isStack
 import net.minecraft.core.BlockPos
 import net.minecraft.gametest.framework.GameTest
 import net.minecraft.gametest.framework.GameTestHelper
@@ -37,10 +38,10 @@ import net.minecraft.world.item.Items
 import net.minecraft.world.item.enchantment.Enchantments
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.FenceBlock
+import net.minecraft.world.level.block.entity.BlockEntityType
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.hamcrest.MatcherAssert.assertThat
-import org.hamcrest.Matchers.array
-import org.hamcrest.Matchers.instanceOf
+import org.hamcrest.Matchers.*
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import java.util.*
@@ -84,6 +85,26 @@ class Turtle_Test {
                 .assertArrayEquals(true, message = "Placed lava")
         }
         thenExecute { helper.assertBlockPresent(Blocks.LAVA, BlockPos(2, 2, 2)) }
+    }
+
+    /**
+     * Checks turtles can write to signs.
+     *
+     * @see [#1611](https://github.com/cc-tweaked/CC-Tweaked/issues/1611)
+     */
+    @GameTest
+    fun Place_sign(helper: GameTestHelper) = helper.sequence {
+        thenOnComputer {
+            turtle.place(ObjectArguments("Test\nmessage")).await()
+                .assertArrayEquals(true, message = "Placed sign")
+        }
+        thenExecute {
+            val sign = helper.getBlockEntity(BlockPos(2, 2, 1), BlockEntityType.SIGN)
+            val lines = listOf("", "Test", "message", "")
+            for ((i, line) in lines.withIndex()) {
+                assertEquals(line, sign.frontText.getMessage(i, false).string, "Line $i")
+            }
+        }
     }
 
     /**
@@ -145,11 +166,31 @@ class Turtle_Test {
      */
     @GameTest
     fun Hoe_dirt(helper: GameTestHelper) = helper.sequence {
+        thenOnComputer { turtle.dig(Optional.empty()).await().assertArrayEquals(true, message = "Dug with hoe") }
+        thenExecute { helper.assertBlockPresent(Blocks.FARMLAND, BlockPos(1, 2, 1)) }
+    }
+
+    /**
+     * Checks turtles can hoe dirt with a block gap below them.
+     *
+     * @see [#1527](https://github.com/cc-tweaked/CC-Tweaked/issues/1527)
+     */
+    @GameTest
+    fun Hoe_dirt_below(helper: GameTestHelper) = helper.sequence {
+        thenOnComputer { turtle.digDown(Optional.empty()).await().assertArrayEquals(true, message = "Dug with hoe") }
+        thenExecute { helper.assertBlockPresent(Blocks.FARMLAND, BlockPos(1, 1, 1)) }
+    }
+
+    /**
+     * Checks turtles cannot hoe dirt with a block gap in front of them.
+     */
+    @GameTest
+    fun Hoe_dirt_distant(helper: GameTestHelper) = helper.sequence {
         thenOnComputer {
             turtle.dig(Optional.empty()).await()
-                .assertArrayEquals(true, message = "Dug with hoe")
+                .assertArrayEquals(false, "Nothing to dig here", message = "Dug with hoe")
         }
-        thenExecute { helper.assertBlockPresent(Blocks.FARMLAND, BlockPos(1, 2, 1)) }
+        thenExecute { helper.assertBlockPresent(Blocks.DIRT, BlockPos(1, 2, 2)) }
     }
 
     /**
@@ -288,8 +329,6 @@ class Turtle_Test {
 
     /**
      * Checks turtles can be cleaned in cauldrons.
-     *
-     * Currently not required as turtles can no longer right-click cauldrons.
      */
     @GameTest
     fun Cleaned_with_cauldrons(helper: GameTestHelper) = helper.sequence {
@@ -602,7 +641,90 @@ class Turtle_Test {
         }
     }
 
-    // TODO: Turtle sucking from items
+    /**
+     * `turtle.suck` only pulls for the current side.
+     */
+    @GameTest
+    fun Sided_suck(helper: GameTestHelper) = helper.sequence {
+        thenOnComputer {
+            turtle.suckUp(Optional.empty()).await().assertArrayEquals(true)
+            turtle.getItemDetail(context, Optional.empty(), Optional.empty()).await().assertArrayEquals(
+                mapOf("name" to "minecraft:iron_ingot", "count" to 8),
+            )
+
+            turtle.suckUp(Optional.empty()).await().assertArrayEquals(false, "No items to take")
+        }
+    }
+
+    /**
+     * `turtle.craft` works as expected
+     */
+    @GameTest
+    fun Craft(helper: GameTestHelper) = helper.sequence {
+        thenOnComputer {
+            callPeripheral("left", "craft", 1).assertArrayEquals(true)
+        }
+        thenExecute {
+            val turtle = helper.getBlockEntity(BlockPos(2, 2, 2), ModRegistry.BlockEntities.TURTLE_NORMAL.get())
+            assertThat(
+                "Inventory is as expected.",
+                turtle.contents,
+                contains(
+                    isStack(Items.DIAMOND, 1), isStack(Items.DIAMOND, 1), isStack(Items.DIAMOND, 1), isStack(Items.DIAMOND_PICKAXE, 1),
+                    isStack(ItemStack.EMPTY), isStack(Items.STICK, 1), isStack(ItemStack.EMPTY), isStack(ItemStack.EMPTY),
+                    isStack(ItemStack.EMPTY), isStack(Items.STICK, 1), isStack(ItemStack.EMPTY), isStack(ItemStack.EMPTY),
+                    isStack(ItemStack.EMPTY), isStack(ItemStack.EMPTY), isStack(ItemStack.EMPTY), isStack(ItemStack.EMPTY),
+                ),
+            )
+        }
+    }
+
+    /**
+     * `turtle.equipLeft` equips a tool.
+     */
+    @GameTest
+    fun Equip_tool(helper: GameTestHelper) = helper.sequence {
+        thenOnComputer {
+            turtle.equipLeft().await().assertArrayEquals(true)
+        }
+        thenExecute {
+            val turtle = helper.getBlockEntity(BlockPos(2, 2, 2), ModRegistry.BlockEntities.TURTLE_NORMAL.get())
+            assertEquals(TurtleUpgrades.instance().get("minecraft:diamond_pickaxe"), turtle.getUpgrade(TurtleSide.LEFT))
+        }
+    }
+
+    /**
+     * Tests a turtle can break a block that explodes, causing the turtle itself to explode.
+     *
+     * @see [#585](https://github.com/cc-tweaked/CC-Tweaked/issues/585).
+     */
+    @GameTest
+    fun Breaks_exploding_block(context: GameTestHelper) = context.sequence {
+        thenOnComputer { turtle.dig(Optional.empty()) }
+        thenIdle(2)
+        thenExecute {
+            context.assertItemEntityCountIs(ModRegistry.Items.TURTLE_NORMAL.get(), 1)
+            context.assertItemEntityCountIs(Items.BONE_BLOCK, 65)
+        }
+    }
+
+    /**
+     * Render turtles as an item.
+     */
+    @ClientGameTest
+    fun Render_turtle_items(helper: GameTestHelper) = helper.sequence {
+        thenExecute { helper.positionAtArmorStand() }
+        thenScreenshot()
+    }
+
+    /**
+     * Render turtles as a block entity.
+     */
+    @ClientGameTest
+    fun Render_turtle_blocks(helper: GameTestHelper) = helper.sequence {
+        thenExecute { helper.positionAtArmorStand() }
+        thenScreenshot()
+    }
 }
 
 private val LuaTaskContext.turtle get() = getApi<TurtleAPI>()

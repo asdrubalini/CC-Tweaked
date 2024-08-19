@@ -7,7 +7,6 @@ package dan200.computercraft.shared.computer.core;
 import com.google.common.annotations.VisibleForTesting;
 import dan200.computercraft.api.filesystem.FileOperationException;
 import dan200.computercraft.core.filesystem.ArchiveMount;
-import dan200.computercraft.core.filesystem.FileSystem;
 import net.minecraft.ResourceLocationException;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -21,6 +20,8 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
+import static dan200.computercraft.api.filesystem.MountConstants.NO_SUCH_FILE;
+
 /**
  * A mount backed by Minecraft's {@link ResourceManager}.
  *
@@ -28,8 +29,6 @@ import java.util.Map;
  */
 public final class ResourceMount extends ArchiveMount<ResourceMount.FileEntry> {
     private static final Logger LOG = LoggerFactory.getLogger(ResourceMount.class);
-
-    private static final byte[] TEMP_BUFFER = new byte[8192];
 
     /**
      * Maintain a cache of currently loaded resource mounts. This cache is invalidated when currentManager changes.
@@ -60,15 +59,20 @@ public final class ResourceMount extends ArchiveMount<ResourceMount.FileEntry> {
         var hasAny = false;
         String existingNamespace = null;
 
-        var newRoot = new FileEntry("", new ResourceLocation(namespace, subPath));
+        var newRoot = new FileEntry(new ResourceLocation(namespace, subPath));
         for (var file : manager.listResources(subPath, s -> true).keySet()) {
             existingNamespace = file.getNamespace();
 
             if (!file.getNamespace().equals(namespace)) continue;
-            if (!FileSystem.contains(subPath, file.getPath())) continue; // Some packs seem to include the parent?
 
-            var localPath = FileSystem.toLocal(file.getPath(), subPath);
-            create(newRoot, localPath);
+            var localPath = getLocalPath(file.getPath(), subPath);
+            if (localPath == null) continue;
+
+            try {
+                getOrCreateChild(newRoot, localPath, this::createEntry);
+            } catch (ResourceLocationException e) {
+                LOG.warn("Cannot create resource location for {} ({})", localPath, e.getMessage());
+            }
             hasAny = true;
         }
 
@@ -83,65 +87,24 @@ public final class ResourceMount extends ArchiveMount<ResourceMount.FileEntry> {
         }
     }
 
-    private void create(FileEntry lastEntry, String path) {
-        var lastIndex = 0;
-        while (lastIndex < path.length()) {
-            var nextIndex = path.indexOf('/', lastIndex);
-            if (nextIndex < 0) nextIndex = path.length();
-
-            var part = path.substring(lastIndex, nextIndex);
-            if (lastEntry.children == null) lastEntry.children = new HashMap<>();
-
-            var nextEntry = lastEntry.children.get(part);
-            if (nextEntry == null) {
-                ResourceLocation childPath;
-                try {
-                    childPath = new ResourceLocation(namespace, subPath + "/" + path);
-                } catch (ResourceLocationException e) {
-                    LOG.warn("Cannot create resource location for {} ({})", part, e.getMessage());
-                    return;
-                }
-                lastEntry.children.put(part, nextEntry = new FileEntry(path, childPath));
-            }
-
-            lastEntry = nextEntry;
-            lastIndex = nextIndex + 1;
-        }
+    private FileEntry createEntry(String path) {
+        return new FileEntry(new ResourceLocation(namespace, subPath + "/" + path));
     }
 
     @Override
-    public long getSize(FileEntry file) {
+    protected byte[] getFileContents(String path, FileEntry file) throws IOException {
         var resource = manager.getResource(file.identifier).orElse(null);
-        if (resource == null) return 0;
-
-        try (var stream = resource.open()) {
-            int total = 0, read = 0;
-            do {
-                total += read;
-                read = stream.read(TEMP_BUFFER);
-            } while (read > 0);
-
-            return total;
-        } catch (IOException e) {
-            return 0;
-        }
-    }
-
-    @Override
-    public byte[] getContents(FileEntry file) throws IOException {
-        var resource = manager.getResource(file.identifier).orElse(null);
-        if (resource == null) throw new FileOperationException(file.path, NO_SUCH_FILE);
+        if (resource == null) throw new FileOperationException(path, NO_SUCH_FILE);
 
         try (var stream = resource.open()) {
             return stream.readAllBytes();
         }
     }
 
-    protected static class FileEntry extends ArchiveMount.FileEntry<FileEntry> {
+    protected static final class FileEntry extends ArchiveMount.FileEntry<FileEntry> {
         final ResourceLocation identifier;
 
-        FileEntry(String path, ResourceLocation identifier) {
-            super(path);
+        FileEntry(ResourceLocation identifier) {
             this.identifier = identifier;
         }
     }

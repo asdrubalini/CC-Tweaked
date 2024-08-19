@@ -11,12 +11,18 @@ import dan200.computercraft.core.methods.LuaMethod;
 import dan200.computercraft.core.methods.NamedMethod;
 import org.hamcrest.Matcher;
 import org.junit.jupiter.api.Test;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Opcodes;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static dan200.computercraft.test.core.ContramapMatcher.contramap;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -24,7 +30,9 @@ import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class GeneratorTest {
-    private static final MethodSupplierImpl<LuaMethod> GENERATOR = (MethodSupplierImpl<LuaMethod>) LuaMethodSupplier.create(List.of());
+    private static final MethodSupplierImpl<LuaMethod> GENERATOR = (MethodSupplierImpl<LuaMethod>) LuaMethodSupplier.create(
+        Stream.of(new StaticGeneric(), new InstanceGeneric()).flatMap(GenericMethod::getMethods).toList()
+    );
 
     @Test
     public void testBasic() {
@@ -58,13 +66,30 @@ public class GeneratorTest {
     }
 
     @Test
-    public void testNonPublicClass() {
-        assertThat(GENERATOR.getMethods(NonPublic.class), is(empty()));
+    public void testNonPublicClass() throws LuaException {
+        var methods = GENERATOR.getMethods(NonPublic.class);
+        assertThat(methods, contains(named("go")));
+        assertThat(apply(methods, new NonPublic(), "go"), is(MethodResult.of()));
     }
 
     @Test
     public void testNonInstance() {
         assertThat(GENERATOR.getMethods(NonInstance.class), is(empty()));
+    }
+
+    @Test
+    public void testStaticGenericMethod() throws LuaException {
+        var methods = GENERATOR.getMethods(GenericMethodTarget.class);
+        assertThat(methods, hasItem(named("goStatic")));
+        assertThat(apply(methods, new GenericMethodTarget(), "goStatic", "Hello", 123), is(MethodResult.of()));
+    }
+
+
+    @Test
+    public void testInstanceGenericrMethod() throws LuaException {
+        var methods = GENERATOR.getMethods(GenericMethodTarget.class);
+        assertThat(methods, hasItem(named("goInstance")));
+        assertThat(apply(methods, new GenericMethodTarget(), "goInstance", "Hello", 123), is(MethodResult.of()));
     }
 
     @Test
@@ -116,6 +141,33 @@ public class GeneratorTest {
         assertThat(methods, contains(named("withUnsafe")));
     }
 
+    @Test
+    public void testClassNotAccessible() throws IOException, ReflectiveOperationException, LuaException {
+        var basicName = Basic.class.getName().replace('.', '/');
+
+        // Load our Basic class, rewriting it to be a separate (hidden) class which is not part of the same nest as
+        // the existing Basic.
+        ClassReader reader;
+        try (var input = getClass().getClassLoader().getResourceAsStream(basicName + ".class")) {
+            reader = new ClassReader(Objects.requireNonNull(input, "Cannot find " + basicName));
+        }
+        var writer = new ClassWriter(reader, 0);
+        reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override
+            public void visitNestHost(String nestHost) {
+            }
+
+            @Override
+            public void visitInnerClass(String name, String outerName, String innerName, int access) {
+            }
+        }, 0);
+
+        var klass = MethodHandles.lookup().defineHiddenClass(writer.toByteArray(), true).lookupClass();
+
+        var methods = GENERATOR.getMethods(klass);
+        assertThat(apply(methods, klass.getConstructor().newInstance(), "go"), equalTo(MethodResult.of()));
+    }
+
     public static class Basic {
         @LuaFunction
         public final void go() {
@@ -137,6 +189,31 @@ public class GeneratorTest {
     public static class NonInstance {
         @LuaFunction
         public static void go() {
+        }
+    }
+
+    public static class GenericMethodTarget {
+    }
+
+    public static class StaticGeneric implements GenericSource {
+        @Override
+        public String id() {
+            return "static";
+        }
+
+        @LuaFunction
+        public static void goStatic(GenericMethodTarget target, String arg1, int arg2, ILuaContext context) {
+        }
+    }
+
+    public static class InstanceGeneric implements GenericSource {
+        @Override
+        public String id() {
+            return "instance";
+        }
+
+        @LuaFunction
+        public void goInstance(GenericMethodTarget target, String arg1, int arg2, ILuaContext context) {
         }
     }
 

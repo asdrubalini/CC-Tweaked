@@ -45,12 +45,16 @@ little daunting getting started. Thankfully, there's several fantastic tutorials
 
  - [Direwolf20's ComputerCraft tutorials](https://www.youtube.com/watch?v=wrUHUhfCY5A "ComputerCraft Tutorial Episode 1 - HELP! and Hello World")
  - [Sethbling's ComputerCraft series](https://www.youtube.com/watch?v=DSsx4VSe-Uk "Programming Tutorial with Minecraft Turtles -- Ep. 1: Intro to Turtles and If-Then-Else_End")
- - [Lyqyd's Computer Basics 1](http://www.computercraft.info/forums2/index.php?/topic/15033-computer-basics-i/ "Computer Basics I")
+ - [Lyqyd's Computer Basics 1](https://ccf.squiddev.cc/forums2/index.php?/topic/15033-computer-basics-i/ "Computer Basics I")
 
 Once you're a little more familiar with the mod, the [wiki](https://tweaked.cc/) provides more detailed documentation on the
 various APIs and peripherals provided by the mod.
 
-If you get stuck, do [ask a question on GitHub][GitHub Discussions] or pop in to the ComputerCraft's [IRC channel][IRC].
+## Community
+If you need help getting started with CC: Tweaked, want to show off your latest project, or just want to chat about
+ComputerCraft, do check out our [GitHub discussions page][GitHub discussions]! There's also a fairly populated,
+albeit quiet IRC channel on [EsperNet], if that's more your cup of tea. You can join `#computercraft` through your
+desktop client, or online using [KiwiIRC].
 
 ## Get Involved
 CC: Tweaked lives on [GitHub]. If you've got any ideas, feedback or bugs please do [create an issue][bug].
@@ -60,4 +64,5 @@ CC: Tweaked lives on [GitHub]. If you've got any ideas, feedback or bugs please 
 [computercraft]: https://github.com/dan200/ComputerCraft "ComputerCraft on GitHub"
 [lua]: https://www.lua.org/ "Lua's main website"
 [GitHub Discussions]: https://github.com/cc-tweaked/CC-Tweaked/discussions
-[IRC]: http://webchat.esper.net/?channels=computercraft "#computercraft on EsperNet"
+[EsperNet]: https://www.esper.net/
+[KiwiIRC]: https://kiwiirc.com/nextclient/#irc://irc.esper.net:+6697/#computercraft "#computercraft on EsperNet"

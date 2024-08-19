@@ -5,27 +5,25 @@
 package dan200.computercraft.shared.platform;
 
 import dan200.computercraft.api.ComputerCraftAPI;
+import dan200.computercraft.impl.Services;
+import dan200.computercraft.shared.network.MessageType;
 import dan200.computercraft.shared.network.NetworkMessage;
 import dan200.computercraft.shared.network.NetworkMessages;
 import dan200.computercraft.shared.network.client.ClientNetworkContext;
 import dan200.computercraft.shared.network.server.ServerNetworkContext;
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
-import it.unimi.dsi.fastutil.ints.IntSet;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ServerGamePacketListener;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.NetworkEvent;
 import net.minecraftforge.network.NetworkRegistry;
-import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collection;
+import javax.annotation.Nullable;
 import java.util.function.Function;
 
 import static dan200.computercraft.core.util.Nullability.assertNonNull;
@@ -47,48 +45,25 @@ public final class NetworkHandler {
     }
 
     public static void setup() {
-        IntSet usedIds = new IntOpenHashSet();
-        NetworkMessages.register(new NetworkMessages.PacketRegistry() {
-            @Override
-            public <T extends NetworkMessage<ClientNetworkContext>> void registerClientbound(int id, Class<T> type, Function<FriendlyByteBuf, T> decoder) {
-                if (!usedIds.add(id)) throw new IllegalArgumentException("Already have a packet with id " + id);
-                registerMainThread(id, NetworkDirection.PLAY_TO_CLIENT, type, decoder, x -> ClientNetworkContext.get());
-            }
+        for (var type : NetworkMessages.getServerbound()) {
+            var forgeType = (MessageTypeImpl<? extends NetworkMessage<ServerNetworkContext>>) type;
+            registerMainThread(forgeType, NetworkDirection.PLAY_TO_SERVER, c -> () -> assertNonNull(c.getSender()));
+        }
 
-            @Override
-            public <T extends NetworkMessage<ServerNetworkContext>> void registerServerbound(int id, Class<T> type, Function<FriendlyByteBuf, T> decoder) {
-                if (!usedIds.add(id)) throw new IllegalArgumentException("Already have a packet with id " + id);
-                registerMainThread(id, NetworkDirection.PLAY_TO_SERVER, type, decoder, c -> () -> assertNonNull(c.getSender()));
-            }
-        });
+        for (var type : NetworkMessages.getClientbound()) {
+            var forgeType = (MessageTypeImpl<? extends NetworkMessage<ClientNetworkContext>>) type;
+            registerMainThread(forgeType, NetworkDirection.PLAY_TO_CLIENT, x -> ClientHolder.get());
+        }
     }
 
-    static void sendToPlayer(NetworkMessage<ClientNetworkContext> packet, ServerPlayer player) {
-        network.sendTo(packet, player.connection.connection, NetworkDirection.PLAY_TO_CLIENT);
+    @SuppressWarnings("unchecked")
+    public static Packet<ClientGamePacketListener> createClientboundPacket(NetworkMessage<ClientNetworkContext> packet) {
+        return (Packet<ClientGamePacketListener>) network.toVanillaPacket(packet, NetworkDirection.PLAY_TO_CLIENT);
     }
 
-    static void sendToPlayers(NetworkMessage<ClientNetworkContext> packet, Collection<ServerPlayer> players) {
-        if (players.isEmpty()) return;
-
-        var vanillaPacket = network.toVanillaPacket(packet, NetworkDirection.PLAY_TO_CLIENT);
-        for (var player : players) player.connection.send(vanillaPacket);
-    }
-
-    static void sendToAllPlayers(NetworkMessage<ClientNetworkContext> packet) {
-        network.send(PacketDistributor.ALL.noArg(), packet);
-    }
-
-    static void sendToAllAround(NetworkMessage<ClientNetworkContext> packet, Level world, Vec3 pos, double range) {
-        var target = new PacketDistributor.TargetPoint(pos.x, pos.y, pos.z, range, world.dimension());
-        network.send(PacketDistributor.NEAR.with(() -> target), packet);
-    }
-
-    static void sendToAllTracking(NetworkMessage<ClientNetworkContext> packet, LevelChunk chunk) {
-        network.send(PacketDistributor.TRACKING_CHUNK.with(() -> chunk), packet);
-    }
-
-    public static void sendToServer(NetworkMessage<ServerNetworkContext> packet) {
-        network.sendToServer(packet);
+    @SuppressWarnings("unchecked")
+    public static Packet<ServerGamePacketListener> createServerboundPacket(NetworkMessage<ServerNetworkContext> packet) {
+        return (Packet<ServerGamePacketListener>) network.toVanillaPacket(packet, NetworkDirection.PLAY_TO_SERVER);
     }
 
     /**
@@ -96,19 +71,16 @@ public final class NetworkHandler {
      *
      * @param <T>       The type of the packet to send.
      * @param <H>       The context this packet is evaluated under.
-     * @param type      The class of the type of packet to send.
-     * @param id        The identifier for this packet type.
+     * @param type      The message type to register.
      * @param direction A network direction which will be asserted before any processing of this message occurs
-     * @param decoder   The factory for this type of packet.
      * @param handler   Gets or constructs the handler for this packet.
      */
     static <H, T extends NetworkMessage<H>> void registerMainThread(
-        int id, NetworkDirection direction, Class<T> type, Function<FriendlyByteBuf, T> decoder,
-        Function<NetworkEvent.Context, H> handler
+        MessageTypeImpl<T> type, NetworkDirection direction, Function<NetworkEvent.Context, H> handler
     ) {
-        network.messageBuilder(type, id, direction)
-            .encoder(NetworkMessage::toBytes)
-            .decoder(decoder)
+        network.messageBuilder(type.klass(), type.id(), direction)
+            .encoder(NetworkMessage::write)
+            .decoder(type.reader())
             .consumerMainThread((packet, contextSup) -> {
                 try {
                     packet.handle(handler.apply(contextSup.get()));
@@ -118,5 +90,30 @@ public final class NetworkHandler {
                 }
             })
             .add();
+    }
+
+    public record MessageTypeImpl<T extends NetworkMessage<?>>(
+        int id, Class<T> klass, Function<FriendlyByteBuf, T> reader
+    ) implements MessageType<T> {
+    }
+
+    /**
+     * This holds an instance of {@link ClientNetworkContext}. This is a separate class to ensure that the instance is
+     * lazily created when needed on the client.
+     */
+    private static final class ClientHolder {
+        private static final @Nullable ClientNetworkContext INSTANCE;
+        private static final @Nullable Throwable ERROR;
+
+        static {
+            var helper = Services.tryLoad(ClientNetworkContext.class);
+            INSTANCE = helper.instance();
+            ERROR = helper.error();
+        }
+
+        static ClientNetworkContext get() {
+            var instance = INSTANCE;
+            return instance == null ? Services.raise(ClientNetworkContext.class, ERROR) : instance;
+        }
     }
 }

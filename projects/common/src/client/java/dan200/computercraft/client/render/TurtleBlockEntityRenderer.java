@@ -5,44 +5,30 @@
 package dan200.computercraft.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import com.mojang.math.Transformation;
 import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.api.turtle.TurtleSide;
-import dan200.computercraft.client.model.turtle.ModelTransformer;
 import dan200.computercraft.client.platform.ClientPlatformHelper;
 import dan200.computercraft.client.turtle.TurtleUpgradeModellers;
-import dan200.computercraft.shared.computer.core.ComputerFamily;
 import dan200.computercraft.shared.turtle.blocks.TurtleBlockEntity;
-import dan200.computercraft.shared.util.DirectionUtil;
 import dan200.computercraft.shared.util.Holiday;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.Sheets;
-import net.minecraft.client.renderer.block.model.BakedQuad;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.client.resources.model.BakedModel;
-import net.minecraft.client.resources.model.ModelResourceLocation;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
-import org.joml.Vector4f;
 
 import javax.annotation.Nullable;
-import java.util.List;
 
 public class TurtleBlockEntityRenderer implements BlockEntityRenderer<TurtleBlockEntity> {
-    private static final ModelResourceLocation NORMAL_TURTLE_MODEL = new ModelResourceLocation(ComputerCraftAPI.MOD_ID, "turtle_normal", "inventory");
-    private static final ModelResourceLocation ADVANCED_TURTLE_MODEL = new ModelResourceLocation(ComputerCraftAPI.MOD_ID, "turtle_advanced", "inventory");
     private static final ResourceLocation COLOUR_TURTLE_MODEL = new ResourceLocation(ComputerCraftAPI.MOD_ID, "block/turtle_colour");
     private static final ResourceLocation ELF_OVERLAY_MODEL = new ResourceLocation(ComputerCraftAPI.MOD_ID, "block/turtle_elf_overlay");
-
-    private final RandomSource random = RandomSource.create(0);
 
     private final BlockEntityRenderDispatcher renderer;
     private final Font font;
@@ -50,13 +36,6 @@ public class TurtleBlockEntityRenderer implements BlockEntityRenderer<TurtleBloc
     public TurtleBlockEntityRenderer(BlockEntityRendererProvider.Context context) {
         renderer = context.getBlockEntityRenderDispatcher();
         font = context.getFont();
-    }
-
-    public static ResourceLocation getTurtleModel(ComputerFamily family, boolean coloured) {
-        return switch (family) {
-            default -> coloured ? COLOUR_TURTLE_MODEL : NORMAL_TURTLE_MODEL;
-            case ADVANCED -> coloured ? COLOUR_TURTLE_MODEL : ADVANCED_TURTLE_MODEL;
-        };
     }
 
     public static @Nullable ResourceLocation getTurtleOverlayModel(@Nullable ResourceLocation overlay, boolean christmas) {
@@ -76,7 +55,7 @@ public class TurtleBlockEntityRenderer implements BlockEntityRenderer<TurtleBloc
         // Render the label
         var label = turtle.getLabel();
         var hit = renderer.cameraHitResult;
-        if (label != null && hit.getType() == HitResult.Type.BLOCK && turtle.getBlockPos().equals(((BlockHitResult) hit).getBlockPos())) {
+        if (label != null && hit != null && hit.getType() == HitResult.Type.BLOCK && turtle.getBlockPos().equals(((BlockHitResult) hit).getBlockPos())) {
             var mc = Minecraft.getInstance();
             var font = this.font;
 
@@ -88,7 +67,6 @@ public class TurtleBlockEntityRenderer implements BlockEntityRenderer<TurtleBloc
             var matrix = transform.last().pose();
             var opacity = (int) (mc.options.getBackgroundOpacity(0.25f) * 255) << 24;
             var width = -font.width(label) / 2.0f;
-            // TODO: Check this looks okay
             font.drawInBatch(label, width, (float) 0, 0x20ffffff, false, matrix, buffers, Font.DisplayMode.SEE_THROUGH, opacity, lightmapCoord);
             font.drawInBatch(label, width, (float) 0, 0xffffffff, false, matrix, buffers, Font.DisplayMode.NORMAL, 0, lightmapCoord);
 
@@ -106,26 +84,33 @@ public class TurtleBlockEntityRenderer implements BlockEntityRenderer<TurtleBloc
 
         // Render the turtle
         var colour = turtle.getColour();
-        var family = turtle.getFamily();
         var overlay = turtle.getOverlay();
 
-        var buffer = buffers.getBuffer(Sheets.translucentCullBlockSheet());
-        renderModel(transform, buffer, lightmapCoord, overlayLight, getTurtleModel(family, colour != -1), colour == -1 ? null : new int[]{ colour });
+        if (colour == -1) {
+            // Render the turtle using its item model.
+            var modelManager = Minecraft.getInstance().getItemRenderer().getItemModelShaper();
+            var model = modelManager.getItemModel(turtle.getBlockState().getBlock().asItem());
+            if (model == null) model = modelManager.getModelManager().getMissingModel();
+            renderModel(transform, buffers, lightmapCoord, overlayLight, model, null);
+        } else {
+            // Otherwise render it using the colour item.
+            renderModel(transform, buffers, lightmapCoord, overlayLight, COLOUR_TURTLE_MODEL, new int[]{ colour });
+        }
 
         // Render the overlay
         var overlayModel = getTurtleOverlayModel(overlay, Holiday.getCurrent() == Holiday.CHRISTMAS);
         if (overlayModel != null) {
-            renderModel(transform, buffer, lightmapCoord, overlayLight, overlayModel, null);
+            renderModel(transform, buffers, lightmapCoord, overlayLight, overlayModel, null);
         }
 
         // Render the upgrades
-        renderUpgrade(transform, buffer, lightmapCoord, overlayLight, turtle, TurtleSide.LEFT, partialTicks);
-        renderUpgrade(transform, buffer, lightmapCoord, overlayLight, turtle, TurtleSide.RIGHT, partialTicks);
+        renderUpgrade(transform, buffers, lightmapCoord, overlayLight, turtle, TurtleSide.LEFT, partialTicks);
+        renderUpgrade(transform, buffers, lightmapCoord, overlayLight, turtle, TurtleSide.RIGHT, partialTicks);
 
         transform.popPose();
     }
 
-    private void renderUpgrade(PoseStack transform, VertexConsumer renderer, int lightmapCoord, int overlayLight, TurtleBlockEntity turtle, TurtleSide side, float f) {
+    private void renderUpgrade(PoseStack transform, MultiBufferSource buffers, int lightmapCoord, int overlayLight, TurtleBlockEntity turtle, TurtleSide side, float f) {
         var upgrade = turtle.getUpgrade(side);
         if (upgrade == null) return;
         transform.pushPose();
@@ -136,16 +121,15 @@ public class TurtleBlockEntityRenderer implements BlockEntityRenderer<TurtleBloc
         transform.translate(0.0f, -0.5f, -0.5f);
 
         var model = TurtleUpgradeModellers.getModel(upgrade, turtle.getAccess(), side);
-        pushPoseFromTransformation(transform, model.getMatrix());
-        renderModel(transform, renderer, lightmapCoord, overlayLight, model.getModel(), null);
-        transform.popPose();
+        applyTransformation(transform, model.getMatrix());
+        renderModel(transform, buffers, lightmapCoord, overlayLight, model.getModel(), null);
 
         transform.popPose();
     }
 
-    private void renderModel(PoseStack transform, VertexConsumer renderer, int lightmapCoord, int overlayLight, ResourceLocation modelLocation, @Nullable int[] tints) {
+    private void renderModel(PoseStack transform, MultiBufferSource buffers, int lightmapCoord, int overlayLight, ResourceLocation modelLocation, @Nullable int[] tints) {
         var modelManager = Minecraft.getInstance().getItemRenderer().getItemModelShaper().getModelManager();
-        renderModel(transform, renderer, lightmapCoord, overlayLight, ClientPlatformHelper.get().getModel(modelManager, modelLocation), tints);
+        renderModel(transform, buffers, lightmapCoord, overlayLight, ClientPlatformHelper.get().getModel(modelManager, modelLocation), tints);
     }
 
     /**
@@ -159,80 +143,11 @@ public class TurtleBlockEntityRenderer implements BlockEntityRenderer<TurtleBloc
      * @param tints         Tints for the quads, as an array of RGB values.
      * @see net.minecraft.client.renderer.block.ModelBlockRenderer#renderModel
      */
-    private void renderModel(PoseStack transform, VertexConsumer renderer, int lightmapCoord, int overlayLight, BakedModel model, @Nullable int[] tints) {
-        for (var facing : DirectionUtil.FACINGS) {
-            random.setSeed(42);
-            renderQuads(transform, renderer, lightmapCoord, overlayLight, model.getQuads(null, facing, random), tints);
-        }
-
-        random.setSeed(42);
-        renderQuads(transform, renderer, lightmapCoord, overlayLight, model.getQuads(null, null, random), tints);
+    private void renderModel(PoseStack transform, MultiBufferSource renderer, int lightmapCoord, int overlayLight, BakedModel model, @Nullable int[] tints) {
+        ClientPlatformHelper.get().renderBakedModel(transform, renderer, model, lightmapCoord, overlayLight, tints);
     }
 
-    private static void renderQuads(PoseStack transform, VertexConsumer buffer, int lightmapCoord, int overlayLight, List<BakedQuad> quads, @Nullable int[] tints) {
-        var matrix = transform.last();
-        var inverted = matrix.pose().determinant() < 0;
-
-        for (var bakedquad : quads) {
-            var tint = -1;
-            if (tints != null && bakedquad.isTinted()) {
-                var idx = bakedquad.getTintIndex();
-                if (idx >= 0 && idx < tints.length) tint = tints[bakedquad.getTintIndex()];
-            }
-
-            var r = (float) (tint >> 16 & 255) / 255.0F;
-            var g = (float) (tint >> 8 & 255) / 255.0F;
-            var b = (float) (tint & 255) / 255.0F;
-            if (inverted) {
-                putBulkQuadInvert(buffer, matrix, bakedquad, r, g, b, lightmapCoord, overlayLight);
-            } else {
-                buffer.putBulkData(matrix, bakedquad, r, g, b, lightmapCoord, overlayLight);
-            }
-        }
-    }
-
-    /**
-     * A version of {@link VertexConsumer#putBulkData(PoseStack.Pose, BakedQuad, float, float, float, int, int)} for
-     * when the matrix is inverted.
-     *
-     * @param buffer        The buffer to draw to.
-     * @param pose          The current matrix stack.
-     * @param quad          The quad to draw.
-     * @param red           The red tint of this quad.
-     * @param green         The  green tint of this quad.
-     * @param blue          The blue tint of this quad.
-     * @param lightmapCoord The lightmap coordinate
-     * @param overlayLight  The overlay light.
-     */
-    private static void putBulkQuadInvert(VertexConsumer buffer, PoseStack.Pose pose, BakedQuad quad, float red, float green, float blue, int lightmapCoord, int overlayLight) {
-        var matrix = pose.pose();
-        // It's a little dubious to transform using this matrix rather than the normal matrix. This mirrors the logic in
-        // Direction.rotate (so not out of nowhere!), but is a little suspicious.
-        var dirNormal = quad.getDirection().getNormal();
-        var normal = matrix.transform(new Vector4f(dirNormal.getX(), dirNormal.getY(), dirNormal.getZ(), 0.0f)).normalize();
-
-        var vertices = quad.getVertices();
-        for (var vertex : ModelTransformer.ORDER) {
-            var i = vertex * ModelTransformer.STRIDE;
-
-            var x = Float.intBitsToFloat(vertices[i]);
-            var y = Float.intBitsToFloat(vertices[i + 1]);
-            var z = Float.intBitsToFloat(vertices[i + 2]);
-            var transformed = matrix.transform(new Vector4f(x, y, z, 1));
-
-            var u = Float.intBitsToFloat(vertices[i + 4]);
-            var v = Float.intBitsToFloat(vertices[i + 5]);
-            buffer.vertex(
-                transformed.x(), transformed.y(), transformed.z(),
-                red, green, blue, 1.0F, u, v, overlayLight, lightmapCoord,
-                normal.x(), normal.y(), normal.z()
-            );
-        }
-    }
-
-    private static void pushPoseFromTransformation(PoseStack stack, Transformation transformation) {
-        stack.pushPose();
-
+    private static void applyTransformation(PoseStack stack, Transformation transformation) {
         var trans = transformation.getTranslation();
         stack.translate(trans.x(), trans.y(), trans.z());
 

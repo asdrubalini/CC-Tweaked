@@ -27,7 +27,6 @@ pluginManagement {
             name = "Sponge"
             content {
                 includeGroup("org.spongepowered")
-                includeGroup("org.spongepowered.gradle.vanilla")
             }
         }
 
@@ -36,6 +35,13 @@ pluginManagement {
             content {
                 includeGroup("fabric-loom")
                 includeGroup("net.fabricmc")
+            }
+        }
+
+        maven("https://maven.squiddev.cc") {
+            name = "SquidDev"
+            content {
+                includeGroup("cc.tweaked.vanilla-extract")
             }
         }
     }
@@ -63,6 +69,7 @@ include(":forge-api")
 include(":forge")
 
 include(":lints")
+include(":standalone")
 include(":web")
 
 for (project in rootProject.children) {

@@ -5,11 +5,11 @@
 package dan200.computercraft.shared.platform;
 
 import net.minecraft.commands.synchronization.ArgumentTypeInfo;
+import net.minecraft.core.IdMap;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.crafting.RecipeSerializer;
@@ -32,13 +32,10 @@ public final class RegistryWrappers {
     public static final RegistryWrapper<Fluid> FLUIDS = PlatformHelper.get().wrap(Registries.FLUID);
     public static final RegistryWrapper<Enchantment> ENCHANTMENTS = PlatformHelper.get().wrap(Registries.ENCHANTMENT);
     public static final RegistryWrapper<ArgumentTypeInfo<?, ?>> COMMAND_ARGUMENT_TYPES = PlatformHelper.get().wrap(Registries.COMMAND_ARGUMENT_TYPE);
-    public static final RegistryWrapper<SoundEvent> SOUND_EVENTS = PlatformHelper.get().wrap(Registries.SOUND_EVENT);
     public static final RegistryWrapper<RecipeSerializer<?>> RECIPE_SERIALIZERS = PlatformHelper.get().wrap(Registries.RECIPE_SERIALIZER);
     public static final RegistryWrapper<MenuType<?>> MENU = PlatformHelper.get().wrap(Registries.MENU);
 
-    public interface RegistryWrapper<T> extends Iterable<T> {
-        int getId(T object);
-
+    public interface RegistryWrapper<T> extends IdMap<T> {
         ResourceLocation getKey(T object);
 
         T get(ResourceLocation location);
@@ -46,23 +43,12 @@ public final class RegistryWrappers {
         @Nullable
         T tryGet(ResourceLocation location);
 
-        T get(int id);
-
         default Stream<T> stream() {
             return StreamSupport.stream(spliterator(), false);
         }
     }
 
     private RegistryWrappers() {
-    }
-
-    public static <K> void writeId(FriendlyByteBuf buf, RegistryWrapper<K> registry, K object) {
-        buf.writeVarInt(registry.getId(object));
-    }
-
-    public static <K> K readId(FriendlyByteBuf buf, RegistryWrapper<K> registry) {
-        var id = buf.readVarInt();
-        return registry.get(id);
     }
 
     public static <K> void writeKey(FriendlyByteBuf buf, RegistryWrapper<K> registry, K object) {

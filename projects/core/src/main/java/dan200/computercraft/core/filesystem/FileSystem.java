@@ -16,13 +16,14 @@ import java.io.IOException;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
-import java.nio.channels.Channel;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.OpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
-import java.util.function.Function;
 import java.util.regex.Pattern;
+
+import static dan200.computercraft.api.filesystem.MountConstants.*;
 
 public class FileSystem {
     /**
@@ -35,7 +36,7 @@ public class FileSystem {
 
     private final Map<String, MountWrapper> mounts = new HashMap<>();
 
-    private final HashMap<WeakReference<FileSystemWrapper<?>>, ChannelWrapper<?>> openFiles = new HashMap<>();
+    private final HashMap<WeakReference<FileSystemWrapper<?>>, SeekableByteChannel> openFiles = new HashMap<>();
     private final ReferenceQueue<FileSystemWrapper<?>> openFileQueue = new ReferenceQueue<>();
 
     public FileSystem(String rootLabel, Mount rootMount) throws FileSystemException {
@@ -121,6 +122,10 @@ public class FileSystem {
         }
 
         var lastSlash = path.lastIndexOf('/');
+
+        // If the trailing segment is a "..", then just append another one.
+        if (path.substring(lastSlash < 0 ? 0 : lastSlash + 1).equals("..")) return path + "/..";
+
         if (lastSlash >= 0) {
             return path.substring(0, lastSlash);
         } else {
@@ -144,7 +149,7 @@ public class FileSystem {
         return getMount(sanitizePath(path)).getAttributes(sanitizePath(path));
     }
 
-    public synchronized String[] list(String path) throws FileSystemException {
+    public synchronized List<String> list(String path) throws FileSystemException {
         path = sanitizePath(path);
         var mount = getMount(path);
 
@@ -160,10 +165,8 @@ public class FileSystem {
         }
 
         // Return list
-        var array = new String[list.size()];
-        list.toArray(array);
-        Arrays.sort(array);
-        return array;
+        list.sort(Comparator.naturalOrder());
+        return list;
     }
 
     public synchronized boolean exists(String path) throws FileSystemException {
@@ -206,9 +209,9 @@ public class FileSystem {
         sourcePath = sanitizePath(sourcePath);
         destPath = sanitizePath(destPath);
 
-        if (isReadOnly(sourcePath) || isReadOnly(destPath)) throw new FileSystemException("Access denied");
-        if (!exists(sourcePath)) throw new FileSystemException("No such file");
-        if (exists(destPath)) throw new FileSystemException("File exists");
+        if (isReadOnly(sourcePath) || isReadOnly(destPath)) throw new FileSystemException(ACCESS_DENIED);
+        if (!exists(sourcePath)) throw new FileSystemException(NO_SUCH_FILE);
+        if (exists(destPath)) throw new FileSystemException(FILE_EXISTS);
         if (contains(sourcePath, destPath)) throw new FileSystemException("Can't move a directory inside itself");
 
         var mount = getMount(sourcePath);
@@ -223,17 +226,11 @@ public class FileSystem {
     public synchronized void copy(String sourcePath, String destPath) throws FileSystemException {
         sourcePath = sanitizePath(sourcePath);
         destPath = sanitizePath(destPath);
-        if (isReadOnly(destPath)) {
-            throw new FileSystemException("/" + destPath + ": Access denied");
-        }
-        if (!exists(sourcePath)) {
-            throw new FileSystemException("/" + sourcePath + ": No such file");
-        }
-        if (exists(destPath)) {
-            throw new FileSystemException("/" + destPath + ": File exists");
-        }
+        if (isReadOnly(destPath)) throw new FileSystemException(destPath, ACCESS_DENIED);
+        if (!exists(sourcePath)) throw new FileSystemException(sourcePath, NO_SUCH_FILE);
+        if (exists(destPath)) throw new FileSystemException(destPath, FILE_EXISTS);
         if (contains(sourcePath, destPath)) {
-            throw new FileSystemException("/" + sourcePath + ": Can't copy a directory inside itself");
+            throw new FileSystemException(sourcePath, "Can't copy a directory inside itself");
         }
         copyRecursive(sourcePath, getMount(sourcePath), destPath, getMount(destPath), 0);
     }
@@ -260,11 +257,11 @@ public class FileSystem {
         } else {
             // Copy a file:
             try (var source = sourceMount.openForRead(sourcePath);
-                 var destination = destinationMount.openForWrite(destinationPath)) {
+                 var destination = destinationMount.openForWrite(destinationPath, WRITE_OPTIONS)) {
                 // Copy bytes as fast as we can
                 ByteStreams.copy(source, destination);
             } catch (AccessDeniedException e) {
-                throw new FileSystemException("Access denied");
+                throw new FileSystemException(ACCESS_DENIED);
             } catch (IOException e) {
                 throw FileSystemException.of(e);
             }
@@ -280,18 +277,16 @@ public class FileSystem {
         }
     }
 
-    private synchronized <T extends Closeable> FileSystemWrapper<T> openFile(MountWrapper mount, Channel channel, T file) throws FileSystemException {
+    private synchronized FileSystemWrapper<SeekableByteChannel> openFile(MountWrapper mount, SeekableByteChannel channel) throws FileSystemException {
         synchronized (openFiles) {
             if (CoreConfig.maximumFilesOpen > 0 &&
                 openFiles.size() >= CoreConfig.maximumFilesOpen) {
-                IoUtil.closeQuietly(file);
                 IoUtil.closeQuietly(channel);
                 throw new FileSystemException("Too many files already open");
             }
 
-            var channelWrapper = new ChannelWrapper<T>(file, channel);
-            var fsWrapper = new FileSystemWrapper<T>(this, mount, channelWrapper, openFileQueue);
-            openFiles.put(fsWrapper.self, channelWrapper);
+            var fsWrapper = new FileSystemWrapper<>(this, mount, channel, openFileQueue);
+            openFiles.put(fsWrapper.self, channel);
             return fsWrapper;
         }
     }
@@ -302,22 +297,22 @@ public class FileSystem {
         }
     }
 
-    public synchronized <T extends Closeable> FileSystemWrapper<T> openForRead(String path, Function<SeekableByteChannel, T> open) throws FileSystemException {
+    public synchronized FileSystemWrapper<SeekableByteChannel> openForRead(String path) throws FileSystemException {
         cleanup();
 
         path = sanitizePath(path);
         var mount = getMount(path);
         var channel = mount.openForRead(path);
-        return openFile(mount, channel, open.apply(channel));
+        return openFile(mount, channel);
     }
 
-    public synchronized <T extends Closeable> FileSystemWrapper<T> openForWrite(String path, boolean append, Function<SeekableByteChannel, T> open) throws FileSystemException {
+    public synchronized FileSystemWrapper<SeekableByteChannel> openForWrite(String path, Set<OpenOption> options) throws FileSystemException {
         cleanup();
 
         path = sanitizePath(path);
         var mount = getMount(path);
-        var channel = append ? mount.openForAppend(path) : mount.openForWrite(path);
-        return openFile(mount, channel, open.apply(channel));
+        var channel = mount.openForWrite(path, options);
+        return openFile(mount, channel);
     }
 
     public synchronized long getFreeSpace(String path) throws FileSystemException {
@@ -348,7 +343,7 @@ public class FileSystem {
             }
         }
         if (match == null) {
-            throw new FileSystemException("/" + path + ": Invalid Path");
+            throw new FileSystemException(path, "Invalid Path");
         }
         return match;
     }
@@ -411,7 +406,7 @@ public class FileSystem {
         return String.join("/", outputParts);
     }
 
-    public static boolean contains(String pathA, String pathB) {
+    private static boolean contains(String pathA, String pathB) {
         pathA = sanitizePath(pathA).toLowerCase(Locale.ROOT);
         pathB = sanitizePath(pathB).toLowerCase(Locale.ROOT);
 
@@ -428,7 +423,7 @@ public class FileSystem {
         }
     }
 
-    public static String toLocal(String path, String location) {
+    static String toLocal(String path, String location) {
         path = sanitizePath(path);
         location = sanitizePath(location);
 

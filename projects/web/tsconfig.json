@@ -20,13 +20,14 @@
         "noUnusedParameters": true,
         "noImplicitReturns": true,
         "noFallthroughCasesInSwitch": true,
-        "importsNotUsedAsValues": "error",
+        "verbatimModuleSyntax": true,
         "forceConsistentCasingInFileNames": true,
 
         // Needed for some of our internal stuff.
         "allowSyntheticDefaultImports": true,
     },
     "include": [
-        "src",
+        "src/htmlTransform",
+        "src/frontend",
     ]
 }

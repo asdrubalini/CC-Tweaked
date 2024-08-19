@@ -15,6 +15,7 @@ import dan200.computercraft.api.peripheral.IPeripheral;
 import dan200.computercraft.impl.Peripherals;
 import dan200.computercraft.shared.Capabilities;
 import dan200.computercraft.shared.config.ConfigFile;
+import dan200.computercraft.shared.network.MessageType;
 import dan200.computercraft.shared.network.NetworkMessage;
 import dan200.computercraft.shared.network.client.ClientNetworkContext;
 import dan200.computercraft.shared.network.container.ContainerData;
@@ -27,9 +28,10 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.Registry;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.TagKey;
@@ -51,7 +53,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.ForgeHooks;
@@ -63,7 +64,6 @@ import net.minecraftforge.common.crafting.CraftingHelper;
 import net.minecraftforge.common.crafting.conditions.ICondition;
 import net.minecraftforge.common.crafting.conditions.ModLoadedCondition;
 import net.minecraftforge.common.extensions.IForgeMenuType;
-import net.minecraftforge.common.util.NonNullConsumer;
 import net.minecraftforge.event.ForgeEventFactory;
 import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
@@ -159,38 +159,23 @@ public class PlatformHelperImpl implements PlatformHelper {
     }
 
     @Override
-    public void sendToPlayer(NetworkMessage<ClientNetworkContext> message, ServerPlayer player) {
-        NetworkHandler.sendToPlayer(message, player);
+    public <T extends NetworkMessage<?>> MessageType<T> createMessageType(int id, ResourceLocation channel, Class<T> klass, FriendlyByteBuf.Reader<T> reader) {
+        return new NetworkHandler.MessageTypeImpl<>(id, klass, reader);
     }
 
     @Override
-    public void sendToPlayers(NetworkMessage<ClientNetworkContext> message, Collection<ServerPlayer> players) {
-        NetworkHandler.sendToPlayers(message, players);
+    public Packet<ClientGamePacketListener> createPacket(NetworkMessage<ClientNetworkContext> message) {
+        return NetworkHandler.createClientboundPacket(message);
     }
 
     @Override
-    public void sendToAllPlayers(NetworkMessage<ClientNetworkContext> message, MinecraftServer server) {
-        NetworkHandler.sendToAllPlayers(message);
+    public ComponentAccess<IPeripheral> createPeripheralAccess(BlockEntity owner, Consumer<Direction> invalidate) {
+        return new PeripheralAccess(owner, invalidate);
     }
 
     @Override
-    public void sendToAllAround(NetworkMessage<ClientNetworkContext> message, ServerLevel level, Vec3 pos, float distance) {
-        NetworkHandler.sendToAllAround(message, level, pos, distance);
-    }
-
-    @Override
-    public void sendToAllTracking(NetworkMessage<ClientNetworkContext> message, LevelChunk chunk) {
-        NetworkHandler.sendToAllTracking(message, chunk);
-    }
-
-    @Override
-    public ComponentAccess<IPeripheral> createPeripheralAccess(Consumer<Direction> invalidate) {
-        return new PeripheralAccess(invalidate);
-    }
-
-    @Override
-    public ComponentAccess<WiredElement> createWiredElementAccess(Consumer<Direction> invalidate) {
-        return new CapabilityAccess<>(Capabilities.CAPABILITY_WIRED_ELEMENT, invalidate);
+    public ComponentAccess<WiredElement> createWiredElementAccess(BlockEntity owner, Consumer<Direction> invalidate) {
+        return new CapabilityAccess<>(owner, Capabilities.CAPABILITY_WIRED_ELEMENT, invalidate);
     }
 
     @Override
@@ -360,14 +345,17 @@ public class PlatformHelperImpl implements PlatformHelper {
         return event.getUseItem() == Event.Result.DENY ? InteractionResult.PASS : stack.useOn(context);
     }
 
+    @Override
+    public boolean canClickRunClientCommand() {
+        return false;
+    }
+
     private record RegistryWrapperImpl<T>(
         ResourceLocation name, ForgeRegistry<T> registry
     ) implements RegistryWrappers.RegistryWrapper<T> {
         @Override
         public int getId(T object) {
-            var id = registry.getID(object);
-            if (id == -1) throw new IllegalStateException(object + " was not registered in " + name);
-            return id;
+            return registry.getID(object);
         }
 
         @Override
@@ -391,10 +379,13 @@ public class PlatformHelperImpl implements PlatformHelper {
         }
 
         @Override
-        public T get(int id) {
-            var object = registry.getValue(id);
-            if (object == null) throw new IllegalStateException(id + " was not registered in " + name);
-            return object;
+        public @Nullable T byId(int id) {
+            return registry.getValue(id);
+        }
+
+        @Override
+        public int size() {
+            return registry.getKeys().size();
         }
 
         @Override
@@ -428,41 +419,41 @@ public class PlatformHelperImpl implements PlatformHelper {
     }
 
     private abstract static class ComponentAccessImpl<T> implements ComponentAccess<T> {
-        private final NonNullConsumer<Object>[] invalidators;
-        private @Nullable Level level;
-        private @Nullable BlockPos pos;
+        private final BlockEntity owner;
+        private final InvalidateCallback[] invalidators;
 
-        ComponentAccessImpl(Consumer<Direction> invalidate) {
+        ComponentAccessImpl(BlockEntity owner, Consumer<Direction> invalidate) {
+            this.owner = owner;
+
             // Generate a cache of invalidation functions so we can guarantee we only ever have one registered per
             // capability - there's no way to remove these callbacks!
-            @SuppressWarnings({ "unchecked", "rawtypes" })
-            var invalidators = this.invalidators = new NonNullConsumer[6];
-            for (var dir : Direction.values()) invalidators[dir.ordinal()] = x -> invalidate.accept(dir);
+            var invalidators = this.invalidators = new InvalidateCallback[6];
+            for (var dir : Direction.values()) invalidators[dir.ordinal()] = () -> invalidate.accept(dir);
         }
 
         @Nullable
-        protected abstract T get(ServerLevel world, BlockPos pos, Direction side, NonNullConsumer<Object> invalidate);
+        protected abstract T get(ServerLevel world, BlockPos pos, Direction side, InvalidateCallback invalidate);
 
         @Nullable
         @Override
-        public T get(ServerLevel level, BlockPos pos, Direction direction) {
-            if (this.level != null && this.level != level) throw new IllegalStateException("Level has changed");
-            if (this.pos != null && this.pos != pos) throw new IllegalStateException("Position has changed");
-
-            this.level = level;
-            this.pos = pos;
-            return get(level, pos.relative(direction), direction.getOpposite(), invalidators[direction.ordinal()]);
+        public T get(Direction direction) {
+            return get(getLevel(), owner.getBlockPos().relative(direction), direction.getOpposite(), invalidators[direction.ordinal()]);
         }
+
+        final ServerLevel getLevel() {
+            return Objects.requireNonNull((ServerLevel) owner.getLevel(), "Block entity is not in a level");
+        }
+
     }
 
     private static class PeripheralAccess extends ComponentAccessImpl<IPeripheral> {
-        PeripheralAccess(Consumer<Direction> invalidate) {
-            super(invalidate);
+        PeripheralAccess(BlockEntity owner, Consumer<Direction> invalidate) {
+            super(owner, invalidate);
         }
 
         @Nullable
         @Override
-        protected IPeripheral get(ServerLevel world, BlockPos pos, Direction side, NonNullConsumer<Object> invalidate) {
+        protected IPeripheral get(ServerLevel world, BlockPos pos, Direction side, InvalidateCallback invalidate) {
             return Peripherals.getPeripheral(world, pos, side, invalidate);
         }
     }
@@ -470,14 +461,14 @@ public class PlatformHelperImpl implements PlatformHelper {
     private static class CapabilityAccess<T> extends ComponentAccessImpl<T> {
         private final Capability<T> capability;
 
-        CapabilityAccess(Capability<T> capability, Consumer<Direction> invalidate) {
-            super(invalidate);
+        CapabilityAccess(BlockEntity owner, Capability<T> capability, Consumer<Direction> invalidate) {
+            super(owner, invalidate);
             this.capability = capability;
         }
 
         @Nullable
         @Override
-        protected T get(ServerLevel world, BlockPos pos, Direction side, NonNullConsumer<Object> invalidate) {
+        protected T get(ServerLevel world, BlockPos pos, Direction side, InvalidateCallback invalidate) {
             if (!world.isLoaded(pos)) return null;
 
             var blockEntity = world.getBlockEntity(pos);

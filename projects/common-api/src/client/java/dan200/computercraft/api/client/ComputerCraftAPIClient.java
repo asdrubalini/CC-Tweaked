@@ -27,8 +27,13 @@ public final class ComputerCraftAPIClient {
      * @param serialiser The turtle upgrade serialiser.
      * @param modeller   The upgrade modeller.
      * @param <T>        The type of the turtle upgrade.
+     * @deprecated This method can lead to confusing load behaviour on Forge. Use
+     * {@code dan200.computercraft.api.client.FabricComputerCraftAPIClient#registerTurtleUpgradeModeller} on Fabric, or
+     * {@code dan200.computercraft.api.client.turtle.RegisterTurtleModellersEvent} on Forge.
      */
+    @Deprecated(forRemoval = true)
     public static <T extends ITurtleUpgrade> void registerTurtleUpgradeModeller(TurtleUpgradeSerialiser<T> serialiser, TurtleUpgradeModeller<T> modeller) {
+        // TODO(1.20.4): Remove this
         getInstance().registerTurtleUpgradeModeller(serialiser, modeller);
     }
 

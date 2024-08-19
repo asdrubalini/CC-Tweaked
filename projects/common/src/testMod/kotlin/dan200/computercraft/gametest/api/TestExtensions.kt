@@ -4,6 +4,7 @@
 
 package dan200.computercraft.gametest.api
 
+import dan200.computercraft.api.peripheral.IPeripheral
 import dan200.computercraft.gametest.core.ManagedComputers
 import dan200.computercraft.mixin.gametest.GameTestHelperAccessor
 import dan200.computercraft.mixin.gametest.GameTestInfoAccessor
@@ -18,13 +19,20 @@ import net.minecraft.core.Direction
 import net.minecraft.gametest.framework.*
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.world.Container
+import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntityType
+import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
+import net.minecraft.world.item.context.UseOnContext
+import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.entity.BarrelBlockEntity
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.entity.BlockEntityType
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.Property
+import net.minecraft.world.phys.BlockHitResult
+import net.minecraft.world.phys.Vec3
 import org.hamcrest.Matchers
 import org.hamcrest.StringDescription
 
@@ -166,6 +174,16 @@ fun <T : Comparable<T>> GameTestHelper.assertBlockHas(pos: BlockPos, property: P
 }
 
 /**
+ * Get a [Container] at a given position.
+ */
+fun GameTestHelper.getContainerAt(pos: BlockPos): Container =
+    when (val container = getBlockEntity(pos)) {
+        is Container -> container
+        null -> failVerbose("Expected a container at $pos, found nothing", pos)
+        else -> failVerbose("Expected a container at $pos, found ${getName(container.type)}", pos)
+    }
+
+/**
  * Assert a container contains exactly these items and no more.
  *
  * @param pos The position of the container.
@@ -173,10 +191,7 @@ fun <T : Comparable<T>> GameTestHelper.assertBlockHas(pos: BlockPos, property: P
  * first `n` slots - the remaining are required to be empty.
  */
 fun GameTestHelper.assertContainerExactly(pos: BlockPos, items: List<ItemStack>) =
-    when (val container = getBlockEntity(pos) ?: failVerbose("Expected a container at $pos, found nothing", pos)) {
-        is Container -> assertContainerExactlyImpl(pos, container, items)
-        else -> failVerbose("Expected a container at $pos, found ${getName(container.type)}", pos)
-    }
+    assertContainerExactlyImpl(pos, getContainerAt(pos), items)
 
 /**
  * Assert an container contains exactly these items and no more.
@@ -206,9 +221,17 @@ private fun GameTestHelper.assertContainerExactlyImpl(pos: BlockPos, container: 
     }
 }
 
+/**
+ * A nasty hack to get a peripheral at a given position, by creating a dummy [BlockEntity].
+ */
+private fun GameTestHelper.getPeripheralAt(pos: BlockPos, direction: Direction): IPeripheral? {
+    val be = BarrelBlockEntity(absolutePos(pos).relative(direction), Blocks.BARREL.defaultBlockState())
+    be.setLevel(level)
+    return PlatformHelper.get().createPeripheralAccess(be) { }.get(direction.opposite)
+}
+
 fun GameTestHelper.assertPeripheral(pos: BlockPos, direction: Direction = Direction.UP, type: String) {
-    val peripheral = PlatformHelper.get().createPeripheralAccess { }
-        .get(level, absolutePos(pos).relative(direction), direction.opposite)
+    val peripheral = getPeripheralAt(pos, direction)
     when {
         peripheral == null -> fail("No peripheral at position", pos)
         peripheral.type != type -> fail("Peripheral is of type ${peripheral.type}, expected $type", pos)
@@ -216,8 +239,7 @@ fun GameTestHelper.assertPeripheral(pos: BlockPos, direction: Direction = Direct
 }
 
 fun GameTestHelper.assertNoPeripheral(pos: BlockPos, direction: Direction = Direction.UP) {
-    val peripheral = PlatformHelper.get().createPeripheralAccess { }
-        .get(level, absolutePos(pos).relative(direction), direction.opposite)
+    val peripheral = getPeripheralAt(pos, direction)
     if (peripheral != null) fail("Expected no peripheral, got a ${peripheral.type}", pos)
 }
 
@@ -228,6 +250,16 @@ fun GameTestHelper.assertExactlyItems(vararg expected: ItemStack, message: Strin
         val description = StringDescription()
         matcher.describeMismatch(actual, description)
         fail(if (message.isNullOrEmpty()) description.toString() else "$message: $description")
+    }
+}
+
+/**
+ * Similar to [GameTestHelper.assertItemEntityCountIs], but searching anywhere in the structure bounds.
+ */
+fun GameTestHelper.assertItemEntityCountIs(expected: Item, count: Int) {
+    val actualCount = getEntities(EntityType.ITEM).sumOf { if (it.item.`is`(expected)) it.item.count else 0 }
+    if (actualCount != count) {
+        throw GameTestAssertException("Expected $count ${expected.description.string} items to exist (found $actualCount)")
     }
 }
 
@@ -276,4 +308,40 @@ fun GameTestHelper.setBlock(pos: BlockPos, state: BlockInput) = state.place(leve
  */
 fun GameTestHelper.modifyBlock(pos: BlockPos, modify: (BlockState) -> BlockState) {
     setBlock(pos, modify(getBlockState(pos)))
+}
+
+/**
+ * Update items in the container at [pos], setting the item in the specified [slot] to [item], and then marking it
+ * changed.
+ */
+fun GameTestHelper.setContainerItem(pos: BlockPos, slot: Int, item: ItemStack) {
+    val container = getContainerAt(pos)
+    container.setItem(slot, item)
+    container.setChanged()
+}
+
+/**
+ * An alternative version ot [GameTestHelper.placeAt], which sets the player's held item first.
+ *
+ * This is required for compatibility with Forge, which uses the in-hand stack, rather than the stack requested.
+ */
+fun GameTestHelper.placeItemAt(stack: ItemStack, pos: BlockPos, direction: Direction) {
+    val player = makeMockPlayer()
+    player.setItemInHand(InteractionHand.MAIN_HAND, stack)
+    val absolutePos = absolutePos(pos.relative(direction))
+    val hit = BlockHitResult(Vec3.atCenterOf(absolutePos), direction, absolutePos, false)
+    stack.useOn(UseOnContext(player, InteractionHand.MAIN_HAND, hit))
+}
+
+/**
+ * Run a function multiple times until it succeeds.
+ */
+inline fun tryMultipleTimes(count: Int, action: () -> Unit) {
+    for (remaining in count - 1 downTo 0) {
+        try {
+            action()
+        } catch (e: AssertionError) {
+            if (remaining == 0) throw e
+        }
+    }
 }

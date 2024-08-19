@@ -4,7 +4,12 @@ SPDX-FileCopyrightText: 2017 The CC: Tweaked Developers
 SPDX-License-Identifier: MPL-2.0
 -->
 
-# ![CC: Tweaked](doc/logo.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./doc/logo-darkmode.png">
+  <source media="(prefers-color-scheme: light)" srcset="./doc/logo.png">
+  <img alt="CC: Tweaked" src="./doc/logo.png">
+</picture>
+
 [![Current build status](https://github.com/cc-tweaked/CC-Tweaked/workflows/Build/badge.svg)](https://github.com/cc-tweaked/CC-Tweaked/actions "Current build status")
 [![Download CC: Tweaked on CurseForge](https://img.shields.io/static/v1?label=Download&message=CC:%20Tweaked&color=E04E14&logoColor=E04E14&logo=CurseForge)][CurseForge]
 [![Download CC: Tweaked on Modrinth](https://img.shields.io/static/v1?label=Download&color=00AF5C&logoColor=00AF5C&logo=Modrinth&message=CC:%20Tweaked)][Modrinth]
@@ -21,8 +26,9 @@ developing the mod, [check out the instructions here](CONTRIBUTING.md#developing
 
 ## Community
 If you need help getting started with CC: Tweaked, want to show off your latest project, or just want to chat about
-ComputerCraft, do check out our [forum] and [GitHub discussions page][GitHub discussions]! There's also a fairly
-populated, albeit quiet [IRC channel][irc], if that's more your cup of tea.
+ComputerCraft, do check out our [GitHub discussions page][GitHub discussions]! There's also a fairly populated,
+albeit quiet IRC channel on [EsperNet], if that's more your cup of tea. You can join `#computercraft` through your
+desktop client, or online using [KiwiIRC].
 
 We also host fairly comprehensive documentation at [tweaked.cc](https://tweaked.cc/ "The CC: Tweaked website").
 
@@ -34,17 +40,16 @@ on is present.
 ```groovy
 repositories {
   maven {
-    url "https://squiddev.cc/maven/"
+    url "https://maven.squiddev.cc"
     content {
       includeGroup("cc.tweaked")
-      includeModule("org.squiddev", "Cobalt")
     }
   }
 }
 
 dependencies {
   // Vanilla (i.e. for multi-loader systems)
-  compileOnly("cc.tweaked:cc-tweaked-$mcVersion-common-api")
+  compileOnly("cc.tweaked:cc-tweaked-$mcVersion-common-api:$cctVersion")
 
   // Forge Gradle
   compileOnly("cc.tweaked:cc-tweaked-$mcVersion-core-api:$cctVersion")
@@ -57,9 +62,22 @@ dependencies {
 }
 ```
 
+When using ForgeGradle, you may also need to add the following:
+
+```groovy
+minecraft {
+    runs {
+        configureEach {
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${buildDir}/createSrgToMcp/output.srg"
+        }
+    }
+}
+```
+
 You should also be careful to only use classes within the `dan200.computercraft.api` package. Non-API classes are
-subject to change at any point. If you depend on functionality outside the API, file an issue, and we can look into
-exposing more features.
+subject to change at any point. If you depend on functionality outside the API (or need to mixin to CC:T), please file
+an issue to let me know!
 
 We bundle the API sources with the jar, so documentation should be easily viewable within your editor. Alternatively,
 the generated documentation [can be browsed online](https://tweaked.cc/javadoc/).
@@ -69,6 +87,6 @@ the generated documentation [can be browsed online](https://tweaked.cc/javadoc/)
 [modrinth]: https://modrinth.com/mod/gu7yAYhd "Download CC: Tweaked from Modrinth"
 [Minecraft Forge]: https://files.minecraftforge.net/ "Download Minecraft Forge."
 [Fabric]: https://fabricmc.net/use/installer/ "Download Fabric."
-[forum]: https://forums.computercraft.cc/
 [GitHub Discussions]: https://github.com/cc-tweaked/CC-Tweaked/discussions
-[IRC]: https://webchat.esper.net/?channels=computercraft "#computercraft on EsperNet"
+[EsperNet]: https://www.esper.net/
+[KiwiIRC]: https://kiwiirc.com/nextclient/#irc://irc.esper.net:+6697/#computercraft "#computercraft on EsperNet"

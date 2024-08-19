@@ -6,13 +6,12 @@ SPDX-License-Identifier: MPL-2.0
 
 # Contributing to CC: Tweaked
 As with many open source projects, CC: Tweaked thrives on contributions from other people! This document (hopefully)
-provides an introduction as to how to get started in helping out.
+provides an introduction as to how to get started with helping out.
 
 If you've any other questions, [just ask the community][community] or [open an issue][new-issue].
 
 ## Table of Contents
  - [Reporting issues](#reporting-issues)
- - [Translations](#translations)
  - [Setting up a development environment](#setting-up-a-development-environment)
  - [Developing CC: Tweaked](#developing-cc-tweaked)
  - [Writing documentation](#writing-documentation)
@@ -21,17 +20,13 @@ If you've any other questions, [just ask the community][community] or [open an i
 If you have a bug, suggestion, or other feedback, the best thing to do is [file an issue][new-issue]. When doing so, do
 use the issue templates - they provide a useful hint on what information to provide.
 
-## Translations
-Translations are managed through [Weblate], an online interface for managing language strings. This is synced
-automatically with GitHub, so please don't submit PRs adding/changing translations!
-
 ## Setting up a development environment
 In order to develop CC: Tweaked, you'll need to download the source code and then run it.
 
- - Make sure you've got the following software instealled:
-   - Java Development Kit (JDK) installed. This can be downloaded from [Adoptium].
+ - Make sure you've got the following software installed:
+   - Java Development Kit 17 (JDK). This can be downloaded from [Adoptium].
    - [Git](https://git-scm.com/).
-   - If you want to work on documentation, [NodeJS][node].
+   - [NodeJS 20 or later][node].
 
  - Download CC: Tweaked's source code:
    ```
@@ -51,10 +46,10 @@ If you want to run CC:T in a normal Minecraft instance, run `./gradlew assemble`
 ## Developing CC: Tweaked
 Before making any major changes to CC: Tweaked, I'd recommend you have a read of the [the architecture
 document][architecture] first. While it's not a comprehensive document, it gives a good hint of where you should start
-looking to make your changes. As always, if you're not sure [do ask the community][community]!
+looking to make your changes. As always, if you're not sure, [do ask the community][community]!
 
 ### Testing
-When making larger changes, it's may be useful to write a test to make sure your code works as expected.
+When making larger changes, it may be useful to write a test to make sure your code works as expected.
 
 CC: Tweaked has several test suites, each designed to test something different:
 
@@ -91,18 +86,16 @@ file.
 
 Documentation is built using [illuaminate] which, while not currently documented (somewhat ironic), is largely the same
 as [ldoc][ldoc]. Documentation comments are written in Markdown, though note that we do not support many GitHub-specific
-markdown features - if you can, do check what the documentation looks like locally!
+markdown features. If you can, do check what the documentation looks like locally!
 
 When writing long-form documentation (such as the guides in [doc/guides](doc/guides)), I find it useful to tell a
-narrative. Think of what you want the user to learn or achieve, then start introducing a simple concept and then talk
-about how you can build on that, until you've covered everything!
+narrative. Think of what you want the user to learn or achieve, then start introducing a simple concept, and then talk
+about how you can build on that until you've covered everything!
 
 [new-issue]: https://github.com/cc-tweaked/CC-Tweaked/issues/new/choose "Create a new issue"
 [community]: README.md#community "Get in touch with the community."
 [Adoptium]: https://adoptium.net/temurin/releases?version=17 "Download OpenJDK 17"
-[checkstyle]: https://checkstyle.org/
 [illuaminate]: https://github.com/SquidDev/illuaminate/ "Illuaminate on GitHub"
-[weblate]: https://i18n.tweaked.cc/projects/cc-tweaked/minecraft/ "CC: Tweaked weblate instance"
 [docs]: https://tweaked.cc/ "CC: Tweaked documentation"
 [ldoc]: http://stevedonovan.github.io/ldoc/ "ldoc, a Lua documentation generator."
 [mc-test]: https://www.youtube.com/watch?v=vXaWOJTCYNg

@@ -6,6 +6,7 @@ package dan200.computercraft.data;
 
 import dan200.computercraft.api.ComputerCraftTags;
 import dan200.computercraft.shared.ModRegistry;
+import dan200.computercraft.shared.integration.ExternalModTags;
 import dan200.computercraft.shared.platform.RegistryWrappers;
 import net.minecraft.data.tags.ItemTagsProvider;
 import net.minecraft.data.tags.TagsProvider;
@@ -35,6 +36,8 @@ class TagProvider {
         tags.tag(ComputerCraftTags.Blocks.WIRED_MODEM).add(ModRegistry.Blocks.CABLE.get(), ModRegistry.Blocks.WIRED_MODEM_FULL.get());
         tags.tag(ComputerCraftTags.Blocks.MONITOR).add(ModRegistry.Blocks.MONITOR_NORMAL.get(), ModRegistry.Blocks.MONITOR_ADVANCED.get());
 
+        tags.tag(ComputerCraftTags.Blocks.PERIPHERAL_HUB_IGNORE).addTag(ComputerCraftTags.Blocks.WIRED_MODEM);
+
         tags.tag(ComputerCraftTags.Blocks.TURTLE_ALWAYS_BREAKABLE).addTag(BlockTags.LEAVES).add(
             Blocks.BAMBOO, Blocks.BAMBOO_SAPLING // Bamboo isn't instabreak for some odd reason.
         );
@@ -56,7 +59,10 @@ class TagProvider {
 
         tags.tag(ComputerCraftTags.Blocks.TURTLE_SWORD_BREAKABLE).addTag(BlockTags.WOOL).add(Blocks.COBWEB);
 
-        tags.tag(ComputerCraftTags.Blocks.TURTLE_CAN_USE).addTag(BlockTags.CAULDRONS).addTag(BlockTags.BEEHIVES);
+        tags.tag(ComputerCraftTags.Blocks.TURTLE_CAN_USE)
+            .addTag(BlockTags.BEEHIVES)
+            .addTag(BlockTags.CAULDRONS)
+            .add(Blocks.COMPOSTER);
 
         // Make all blocks aside from command computer mineable.
         tags.tag(BlockTags.MINEABLE_WITH_PICKAXE).add(
@@ -74,6 +80,14 @@ class TagProvider {
             ModRegistry.Blocks.WIRED_MODEM_FULL.get(),
             ModRegistry.Blocks.CABLE.get()
         );
+
+        tags.tag(BlockTags.WITHER_IMMUNE).add(ModRegistry.Blocks.COMPUTER_COMMAND.get());
+
+        tags.tag(ExternalModTags.Blocks.CREATE_BRITTLE).add(
+            ModRegistry.Blocks.CABLE.get(),
+            ModRegistry.Blocks.WIRELESS_MODEM_NORMAL.get(),
+            ModRegistry.Blocks.WIRELESS_MODEM_ADVANCED.get()
+        );
     }
 
     public static void itemTags(ItemTagConsumer tags) {
@@ -88,7 +102,13 @@ class TagProvider {
             ModRegistry.Items.MONITOR_ADVANCED.get()
         );
 
+        // Allow printed books to be placed in bookshelves.
         tags.tag(ItemTags.BOOKSHELF_BOOKS).add(ModRegistry.Items.PRINTED_BOOK.get());
+
+        // Allow any printout to be placed on lecterns. See also PrintoutItem and CustomLecternBlock.
+        tags.tag(ItemTags.LECTERN_BOOKS).add(
+            ModRegistry.Items.PRINTED_PAGE.get(), ModRegistry.Items.PRINTED_PAGES.get(), ModRegistry.Items.PRINTED_BOOK.get()
+        );
 
         tags.tag(ComputerCraftTags.Items.TURTLE_CAN_PLACE)
             .add(Items.GLASS_BOTTLE)

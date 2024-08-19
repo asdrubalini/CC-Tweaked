@@ -6,6 +6,8 @@ package dan200.computercraft.test.core.filesystem;
 
 import dan200.computercraft.api.filesystem.FileOperationException;
 import dan200.computercraft.api.filesystem.Mount;
+import dan200.computercraft.test.core.ReplaceUnderscoresDisplayNameGenerator;
+import org.junit.jupiter.api.DisplayNameGeneration;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -19,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+import static dan200.computercraft.api.filesystem.MountConstants.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -26,15 +29,18 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @see WritableMountContract
  */
+@DisplayNameGeneration(ReplaceUnderscoresDisplayNameGenerator.class)
 public interface MountContract {
-    FileTime EPOCH = FileTime.from(Instant.EPOCH);
     FileTime MODIFY_TIME = FileTime.from(Instant.EPOCH.plus(2, ChronoUnit.DAYS));
 
     /**
      * Create a skeleton mount. This should contain the following files:
      *
      * <ul>
-     *     <li>{@code dir/file.lua}, containing {@code print('testing')}.</li>
+     *     <li>
+     *         {@code dir/file.lua}, containing {@code print('testing')}. If {@linkplain #hasFileTimes() file times are
+     *         supported}, it should have a modification time of {@link #MODIFY_TIME}.
+     *     </li>
      *     <li>{@code f.lua}, containing nothing.</li>
      * </ul>
      *
@@ -82,6 +88,24 @@ public interface MountContract {
     }
 
     @Test
+    default void testListMissing() throws IOException {
+        var mount = createSkeleton();
+
+        var error = assertThrows(FileOperationException.class, () -> mount.list("no_such_file", new ArrayList<>()));
+        assertEquals("no_such_file", error.getFilename());
+        assertEquals(NO_SUCH_FILE, error.getMessage());
+    }
+
+    @Test
+    default void testListFile() throws IOException {
+        var mount = createSkeleton();
+
+        var error = assertThrows(FileOperationException.class, () -> mount.list("dir/file.lua", new ArrayList<>()));
+        assertEquals("dir/file.lua", error.getFilename());
+        assertEquals(NOT_A_DIRECTORY, error.getMessage());
+    }
+
+    @Test
     default void testOpenFile() throws IOException {
         var mount = createSkeleton();
 
@@ -94,12 +118,22 @@ public interface MountContract {
     }
 
     @Test
-    default void testOpenFileFails() throws IOException {
+    default void openForRead_fails_on_missing_file() throws IOException {
         var mount = createSkeleton();
 
         var exn = assertThrows(FileOperationException.class, () -> mount.openForRead("doesnt/exist"));
         assertEquals("doesnt/exist", exn.getFilename());
         assertEquals("No such file", exn.getMessage());
+    }
+
+
+    @Test
+    default void openForRead_fails_on_directory() throws IOException {
+        var mount = createSkeleton();
+
+        var error = assertThrows(FileOperationException.class, () -> mount.openForRead("dir").close());
+        assertEquals("dir", error.getFilename());
+        assertEquals(NOT_A_FILE, error.getMessage());
     }
 
     @Test

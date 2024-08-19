@@ -4,12 +4,12 @@
 
 package dan200.computercraft.core;
 
-import dan200.computercraft.api.lua.ILuaAPIFactory;
 import dan200.computercraft.core.asm.GenericMethod;
 import dan200.computercraft.core.asm.LuaMethodSupplier;
 import dan200.computercraft.core.asm.PeripheralMethodSupplier;
-import dan200.computercraft.core.computer.ComputerThread;
 import dan200.computercraft.core.computer.GlobalEnvironment;
+import dan200.computercraft.core.computer.computerthread.ComputerScheduler;
+import dan200.computercraft.core.computer.computerthread.ComputerThread;
 import dan200.computercraft.core.computer.mainthread.MainThreadScheduler;
 import dan200.computercraft.core.computer.mainthread.NoWorkMainThreadScheduler;
 import dan200.computercraft.core.lua.CobaltLuaMachine;
@@ -31,24 +31,22 @@ import java.util.concurrent.TimeUnit;
  */
 public final class ComputerContext {
     private final GlobalEnvironment globalEnvironment;
-    private final ComputerThread computerScheduler;
+    private final ComputerScheduler computerScheduler;
     private final MainThreadScheduler mainThreadScheduler;
     private final ILuaMachine.Factory luaFactory;
-    private final List<ILuaAPIFactory> apiFactories;
     private final MethodSupplier<LuaMethod> luaMethods;
     private final MethodSupplier<PeripheralMethod> peripheralMethods;
 
-    ComputerContext(
-        GlobalEnvironment globalEnvironment, ComputerThread computerScheduler,
+    private ComputerContext(
+        GlobalEnvironment globalEnvironment, ComputerScheduler computerScheduler,
         MainThreadScheduler mainThreadScheduler, ILuaMachine.Factory luaFactory,
-        List<ILuaAPIFactory> apiFactories, MethodSupplier<LuaMethod> luaMethods,
+        MethodSupplier<LuaMethod> luaMethods,
         MethodSupplier<PeripheralMethod> peripheralMethods
     ) {
         this.globalEnvironment = globalEnvironment;
         this.computerScheduler = computerScheduler;
         this.mainThreadScheduler = mainThreadScheduler;
         this.luaFactory = luaFactory;
-        this.apiFactories = apiFactories;
         this.luaMethods = luaMethods;
         this.peripheralMethods = peripheralMethods;
     }
@@ -68,7 +66,7 @@ public final class ComputerContext {
      *
      * @return The current computer thread manager.
      */
-    public ComputerThread computerScheduler() {
+    public ComputerScheduler computerScheduler() {
         return computerScheduler;
     }
 
@@ -88,15 +86,6 @@ public final class ComputerContext {
      */
     public ILuaMachine.Factory luaFactory() {
         return luaFactory;
-    }
-
-    /**
-     * Additional APIs to inject into each computer.
-     *
-     * @return All available API factories.
-     */
-    public List<ILuaAPIFactory> apiFactories() {
-        return apiFactories;
     }
 
     /**
@@ -162,10 +151,9 @@ public final class ComputerContext {
      */
     public static class Builder {
         private final GlobalEnvironment environment;
-        private int threads = 1;
+        private @Nullable ComputerScheduler computerScheduler = null;
         private @Nullable MainThreadScheduler mainThreadScheduler;
         private @Nullable ILuaMachine.Factory luaFactory;
-        private @Nullable List<ILuaAPIFactory> apiFactories;
         private @Nullable List<GenericMethod> genericMethods;
 
         Builder(GlobalEnvironment environment) {
@@ -173,7 +161,7 @@ public final class ComputerContext {
         }
 
         /**
-         * Set the number of threads the {@link ComputerThread} will use.
+         * Set the {@link #computerScheduler()} to use {@link ComputerThread} with a given number of threads.
          *
          * @param threads The number of threads to use.
          * @return {@code this}, for chaining
@@ -181,7 +169,20 @@ public final class ComputerContext {
          */
         public Builder computerThreads(int threads) {
             if (threads < 1) throw new IllegalArgumentException("Threads must be >= 1");
-            this.threads = threads;
+            return computerScheduler(new ComputerThread(threads));
+        }
+
+        /**
+         * Set the {@link ComputerScheduler} for this context.
+         *
+         * @param scheduler The computer thread scheduler.
+         * @return {@code this}, for chaining
+         * @see ComputerContext#mainThreadScheduler()
+         */
+        public Builder computerScheduler(ComputerScheduler scheduler) {
+            Objects.requireNonNull(scheduler);
+            if (computerScheduler != null) throw new IllegalStateException("Computer scheduler already specified");
+            computerScheduler = scheduler;
             return this;
         }
 
@@ -214,20 +215,6 @@ public final class ComputerContext {
         }
 
         /**
-         * Set the additional {@linkplain ILuaAPIFactory APIs} to add to each computer.
-         *
-         * @param apis A list of API factories.
-         * @return {@code this}, for chaining
-         * @see ComputerContext#apiFactories()
-         */
-        public Builder apiFactories(Collection<ILuaAPIFactory> apis) {
-            Objects.requireNonNull(apis);
-            if (apiFactories != null) throw new IllegalStateException("Main-thread scheduler already specified");
-            apiFactories = List.copyOf(apis);
-            return this;
-        }
-
-        /**
          * Set the set of {@link GenericMethod}s used by the {@linkplain MethodSupplier method suppliers}.
          *
          * @param genericMethods A list of API factories.
@@ -250,10 +237,9 @@ public final class ComputerContext {
         public ComputerContext build() {
             return new ComputerContext(
                 environment,
-                new ComputerThread(threads),
+                computerScheduler == null ? new ComputerThread(1) : computerScheduler,
                 mainThreadScheduler == null ? new NoWorkMainThreadScheduler() : mainThreadScheduler,
                 luaFactory == null ? CobaltLuaMachine::new : luaFactory,
-                apiFactories == null ? List.of() : apiFactories,
                 LuaMethodSupplier.create(genericMethods == null ? List.of() : genericMethods),
                 PeripheralMethodSupplier.create(genericMethods == null ? List.of() : genericMethods)
             );

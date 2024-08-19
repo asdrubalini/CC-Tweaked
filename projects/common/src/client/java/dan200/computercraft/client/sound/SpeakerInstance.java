@@ -6,8 +6,8 @@ package dan200.computercraft.client.sound;
 
 import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.core.util.Nullability;
+import dan200.computercraft.shared.peripheral.speaker.EncodedAudio;
 import dan200.computercraft.shared.peripheral.speaker.SpeakerPosition;
-import io.netty.buffer.ByteBuf;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 
@@ -25,7 +25,7 @@ public class SpeakerInstance {
     SpeakerInstance() {
     }
 
-    public synchronized void pushAudio(ByteBuf buffer) {
+    private void pushAudio(EncodedAudio buffer) {
         var sound = this.sound;
 
         var stream = currentStream;
@@ -43,7 +43,9 @@ public class SpeakerInstance {
         }
     }
 
-    public void playAudio(SpeakerPosition position, float volume) {
+    public void playAudio(SpeakerPosition position, float volume, EncodedAudio buffer) {
+        pushAudio(buffer);
+
         var soundManager = Minecraft.getInstance().getSoundManager();
 
         if (sound != null && sound.stream != currentStream) {

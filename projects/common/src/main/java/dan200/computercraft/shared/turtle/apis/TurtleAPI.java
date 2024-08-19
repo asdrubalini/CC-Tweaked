@@ -9,8 +9,9 @@ import dan200.computercraft.api.lua.*;
 import dan200.computercraft.api.turtle.TurtleCommand;
 import dan200.computercraft.api.turtle.TurtleCommandResult;
 import dan200.computercraft.api.turtle.TurtleSide;
-import dan200.computercraft.core.apis.IAPIEnvironment;
 import dan200.computercraft.core.metrics.Metrics;
+import dan200.computercraft.core.metrics.MetricsObserver;
+import dan200.computercraft.shared.peripheral.generic.methods.AbstractInventoryMethods;
 import dan200.computercraft.shared.turtle.core.*;
 
 import java.util.Optional;
@@ -23,53 +24,57 @@ import java.util.Optional;
  * Turtles are capable of moving through the world. As turtles are blocks themselves, they are confined to Minecraft's
  * grid, moving a single block at a time.
  * <p>
- * {@literal @}{turtle.forward} and @{turtle.back} move the turtle in the direction it is facing, while @{turtle.up} and
- * {@literal @}{turtle.down} move it up and down (as one might expect!). In order to move left or right, you first need
- * to turn the turtle using @{turtle.turnLeft}/@{turtle.turnRight} and then move forward or backwards.
+ * [`turtle.forward`] and [`turtle.back`] move the turtle in the direction it is facing, while [`turtle.up`] and
+ * [`turtle.down`] move it up and down (as one might expect!). In order to move left or right, you first need
+ * to turn the turtle using [`turtle.turnLeft`]/[`turtle.turnRight`] and then move forward or backwards.
  * <p>
- * :::info
- * The name "turtle" comes from [Turtle graphics], which originated from the Logo programming language. Here you'd move
- * a turtle with various commands like "move 10" and "turn left", much like ComputerCraft's turtles!
- * :::
+ * > [!INFO]
+ * > The name "turtle" comes from [Turtle graphics], which originated from the Logo programming language. Here you'd
+ * > move a turtle with various commands like "move 10" and "turn left", much like ComputerCraft's turtles!
  * <p>
- * Moving a turtle (though not turning it) consumes *fuel*. If a turtle does not have any @{turtle.refuel|fuel}, it
- * won't move, and the movement functions will return @{false}. If your turtle isn't going anywhere, the first thing to
+ * Moving a turtle (though not turning it) consumes *fuel*. If a turtle does not have any [fuel][`turtle.refuel`], it
+ * won't move, and the movement functions will return [`false`]. If your turtle isn't going anywhere, the first thing to
  * check is if you've fuelled your turtle.
  * <p>
- * :::tip Handling errors
- * Many turtle functions can fail in various ways. For instance, a turtle cannot move forward if there's already a block
- * there. Instead of erroring, functions which can fail either return @{true} if they succeed, or @{false} and some
- * error message if they fail.
- * <p>
- * Unexpected failures can often lead to strange behaviour. It's often a good idea to check the return values of these
- * functions, or wrap them in @{assert} (for instance, use `assert(turtle.forward())` rather than `turtle.forward()`),
- * so the program doesn't misbehave.
- * :::
+ * > [Handling errors][!TIP]
+ * > Many turtle functions can fail in various ways. For instance, a turtle cannot move forward if there's already a
+ * > block there. Instead of erroring, functions which can fail either return [`true`] if they succeed, or [`false`] and
+ * > some error message if they fail.
+ * >
+ * > Unexpected failures can often lead to strange behaviour. It's often a good idea to check the return values of these
+ * > functions, or wrap them in [`assert`] (for instance, use `assert(turtle.forward())` rather than `turtle.forward()`),
+ * > so the program doesn't misbehave.
  * <p>
  * ## Turtle upgrades
  * While a normal turtle can move about the world and place blocks, its functionality is limited. Thankfully, turtles
- * can be upgraded with *tools* and @{peripheral|peripherals}. Turtles have two upgrade slots, one on the left and right
- * sides. Upgrades can be equipped by crafting a turtle with the upgrade, or calling the @{turtle.equipLeft}/@{turtle.equipRight}
- * functions.
+ * can be upgraded with upgrades. Turtles have two upgrade slots, one on the left and right sides. Upgrades can be
+ * equipped by crafting a turtle with the upgrade, or calling the [`turtle.equipLeft`]/[`turtle.equipRight`] functions.
  * <p>
- * Turtle tools allow you to break blocks (@{turtle.dig}) and attack entities (@{turtle.attack}). Some tools are more
- * suitable to a task than others. For instance, a diamond pickaxe can break every block, while a sword does more
- * damage. Other tools have more niche use-cases, for instance hoes can til dirt.
+ * By default, any diamond tool may be used as an upgrade (though more may be added with [datapacks]). The diamond
+ * pickaxe may be used to break blocks (with [`turtle.dig`]), while the sword can attack entities ([`turtle.attack`]).
+ * Other tools have more niche use-cases, for instance hoes can til dirt.
  * <p>
- * Peripherals (such as the @{modem|wireless modem} or @{speaker}) can also be equipped as upgrades. These are then
- * accessible by accessing the `"left"` or `"right"` peripheral.
+ * Some peripherals (namely [speakers][`speaker`] and Ender and Wireless [modems][`modem`]) can also be equipped as
+ * upgrades. These are then accessible by accessing the `"left"` or `"right"` peripheral.
+ * <p>
+ * ## Recipes
+ * <div class="recipe-container">
+ *  <mc-recipe recipe="computercraft:turtle_normal"></mc-recipe>
+ *  <mc-recipe recipe="computercraft:turtle_advanced"></mc-recipe>
+ * </div>
  * <p>
  * [Turtle Graphics]: https://en.wikipedia.org/wiki/Turtle_graphics "Turtle graphics"
+ * [datapacks]: https://datapacks.madefor.cc ""
  *
  * @cc.module turtle
  * @cc.since 1.3
  */
 public class TurtleAPI implements ILuaAPI {
-    private final IAPIEnvironment environment;
+    private final MetricsObserver metrics;
     private final TurtleAccessInternal turtle;
 
-    public TurtleAPI(IAPIEnvironment environment, TurtleAccessInternal turtle) {
-        this.environment = environment;
+    public TurtleAPI(MetricsObserver metrics, TurtleAccessInternal turtle) {
+        this.metrics = metrics;
         this.turtle = turtle;
     }
 
@@ -79,7 +84,7 @@ public class TurtleAPI implements ILuaAPI {
     }
 
     private MethodResult trackCommand(TurtleCommand command) {
-        environment.observe(Metrics.TURTLE_OPS);
+        metrics.observe(Metrics.TURTLE_OPS);
         return turtle.executeCommand(command);
     }
 
@@ -170,7 +175,7 @@ public class TurtleAPI implements ILuaAPI {
      */
     @LuaFunction
     public final MethodResult dig(Optional<TurtleSide> side) {
-        environment.observe(Metrics.TURTLE_OPS);
+        metrics.observe(Metrics.TURTLE_OPS);
         return trackCommand(TurtleToolCommand.dig(InteractDirection.FORWARD, side.orElse(null)));
     }
 
@@ -185,7 +190,7 @@ public class TurtleAPI implements ILuaAPI {
      */
     @LuaFunction
     public final MethodResult digUp(Optional<TurtleSide> side) {
-        environment.observe(Metrics.TURTLE_OPS);
+        metrics.observe(Metrics.TURTLE_OPS);
         return trackCommand(TurtleToolCommand.dig(InteractDirection.UP, side.orElse(null)));
     }
 
@@ -200,7 +205,7 @@ public class TurtleAPI implements ILuaAPI {
      */
     @LuaFunction
     public final MethodResult digDown(Optional<TurtleSide> side) {
-        environment.observe(Metrics.TURTLE_OPS);
+        metrics.observe(Metrics.TURTLE_OPS);
         return trackCommand(TurtleToolCommand.dig(InteractDirection.DOWN, side.orElse(null)));
     }
 
@@ -290,7 +295,7 @@ public class TurtleAPI implements ILuaAPI {
     }
 
     /**
-     * Drop the currently selected stack into the inventory in front of the turtle, or as an item into the world if
+     * Drop the currently selected stack into the inventory below the turtle, or as an item into the world if
      * there is no inventory.
      *
      * @param count The number of items to drop. If not given, the entire stack will be dropped.
@@ -346,7 +351,7 @@ public class TurtleAPI implements ILuaAPI {
      * For instance, if a slot contains 13 blocks of dirt, it has room for another 51.
      *
      * @param slot The slot we wish to check. Defaults to the {@link #select selected slot}.
-     * @return The space left in in this slot.
+     * @return The space left in this slot.
      * @throws LuaException If the slot is out of range.
      */
     @LuaFunction
@@ -751,7 +756,7 @@ public class TurtleAPI implements ILuaAPI {
      * --  count = 13,
      * -- }
      * }</pre>
-     * @see dan200.computercraft.shared.peripheral.generic.methods.InventoryMethods#getItemDetail Describes the information returned by a detailed query.
+     * @see AbstractInventoryMethods#getItemDetail Describes the information returned by a detailed query.
      */
     @LuaFunction
     public final MethodResult getItemDetail(ILuaContext context, Optional<Integer> slot, Optional<Boolean> detailed) throws LuaException {

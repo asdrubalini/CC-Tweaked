@@ -5,15 +5,15 @@
 package dan200.computercraft.core.apis.http.websocket;
 
 import com.google.common.base.Strings;
+import dan200.computercraft.api.lua.LuaException;
 import dan200.computercraft.core.Logging;
 import dan200.computercraft.core.apis.IAPIEnvironment;
-import dan200.computercraft.core.apis.http.HTTPRequestException;
-import dan200.computercraft.core.apis.http.NetworkUtils;
-import dan200.computercraft.core.apis.http.Resource;
-import dan200.computercraft.core.apis.http.ResourceGroup;
+import dan200.computercraft.core.apis.http.*;
 import dan200.computercraft.core.apis.http.options.Options;
-import dan200.computercraft.core.util.IoUtil;
+import dan200.computercraft.core.metrics.Metrics;
+import dan200.computercraft.core.util.AtomicHelpers;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
@@ -23,21 +23,21 @@ import io.netty.handler.codec.http.HttpClientCodec;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpObjectAggregator;
-import io.netty.handler.codec.http.websocketx.WebSocketClientProtocolHandler;
-import io.netty.handler.codec.http.websocketx.WebSocketVersion;
+import io.netty.handler.codec.http.websocketx.*;
+import io.netty.util.concurrent.GenericFutureListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
-import java.lang.ref.WeakReference;
 import java.net.URI;
-import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Provides functionality to verify and connect to a remote websocket.
  */
-public class Websocket extends Resource<Websocket> {
+public class Websocket extends Resource<Websocket> implements WebsocketClient {
     private static final Logger LOG = LoggerFactory.getLogger(Websocket.class);
 
     /**
@@ -46,20 +46,17 @@ public class Websocket extends Resource<Websocket> {
      */
     public static final int MAX_MESSAGE_SIZE = 1 << 30;
 
-    static final String SUCCESS_EVENT = "websocket_success";
-    static final String FAILURE_EVENT = "websocket_failure";
-    static final String CLOSE_EVENT = "websocket_closed";
-    static final String MESSAGE_EVENT = "websocket_message";
-
     private @Nullable Future<?> executorFuture;
-    private @Nullable ChannelFuture connectFuture;
-    private @Nullable WeakReference<WebsocketHandle> websocketHandle;
+    private @Nullable ChannelFuture channelFuture;
 
     private final IAPIEnvironment environment;
     private final URI uri;
     private final String address;
     private final HttpHeaders headers;
     private final int timeout;
+
+    private final AtomicInteger inFlight = new AtomicInteger(0);
+    private final GenericFutureListener<? extends io.netty.util.concurrent.Future<? super Void>> onSend = f -> inFlight.decrementAndGet();
 
     public Websocket(ResourceGroup<Websocket> limiter, IAPIEnvironment environment, URI uri, String address, HttpHeaders headers, int timeout) {
         super(limiter);
@@ -68,38 +65,6 @@ public class Websocket extends Resource<Websocket> {
         this.address = address;
         this.headers = headers;
         this.timeout = timeout;
-    }
-
-    public static URI checkUri(String address) throws HTTPRequestException {
-        URI uri = null;
-        try {
-            uri = new URI(address);
-        } catch (URISyntaxException ignored) {
-            // Fall through to the case below
-        }
-
-        if (uri == null || uri.getHost() == null) {
-            try {
-                uri = new URI("ws://" + address);
-            } catch (URISyntaxException ignored) {
-                // Fall through to the case below
-            }
-        }
-
-        if (uri == null || uri.getHost() == null) throw new HTTPRequestException("URL malformed");
-
-        var scheme = uri.getScheme();
-        if (scheme == null) {
-            try {
-                uri = new URI("ws://" + uri);
-            } catch (URISyntaxException e) {
-                throw new HTTPRequestException("URL malformed");
-            }
-        } else if (!scheme.equalsIgnoreCase("wss") && !scheme.equalsIgnoreCase("ws")) {
-            throw new HTTPRequestException("Invalid scheme '" + scheme + "'");
-        }
-
-        return uri;
     }
 
     public void connect() {
@@ -122,7 +87,7 @@ public class Websocket extends Resource<Websocket> {
             // getAddress may have a slight delay, so let's perform another cancellation check.
             if (isClosed()) return;
 
-            connectFuture = new Bootstrap()
+            channelFuture = new Bootstrap()
                 .group(NetworkUtils.LOOP_GROUP)
                 .channel(NioSocketChannel.class)
                 .handler(new ChannelInitializer<SocketChannel>() {
@@ -133,7 +98,7 @@ public class Websocket extends Resource<Websocket> {
                         var subprotocol = headers.get(HttpHeaderNames.SEC_WEBSOCKET_PROTOCOL);
                         var handshaker = new NoOriginWebSocketHandshaker(
                             uri, WebSocketVersion.V13, subprotocol, true, headers,
-                            options.websocketMessage <= 0 ? MAX_MESSAGE_SIZE : options.websocketMessage
+                            options.websocketMessage() <= 0 ? MAX_MESSAGE_SIZE : options.websocketMessage()
                         );
 
                         var p = ch.pipeline();
@@ -162,12 +127,12 @@ public class Websocket extends Resource<Websocket> {
         }
     }
 
-    void success(Channel channel, Options options) {
+    void success(Options options) {
         if (isClosed()) return;
 
-        var handle = new WebsocketHandle(this, options, channel);
+        var handle = new WebsocketHandle(environment, address, this, options);
         environment().queueEvent(SUCCESS_EVENT, address, handle);
-        websocketHandle = createOwnerReference(handle);
+        createOwnerReference(handle);
 
         checkClosed();
     }
@@ -189,19 +154,44 @@ public class Websocket extends Resource<Websocket> {
         super.dispose();
 
         executorFuture = closeFuture(executorFuture);
-        connectFuture = closeChannel(connectFuture);
-
-        var websocketHandleRef = websocketHandle;
-        var websocketHandle = websocketHandleRef == null ? null : websocketHandleRef.get();
-        IoUtil.closeQuietly(websocketHandle);
-        this.websocketHandle = null;
+        channelFuture = closeChannel(channelFuture);
     }
 
-    public IAPIEnvironment environment() {
+    IAPIEnvironment environment() {
         return environment;
     }
 
-    public String address() {
+    String address() {
         return address;
+    }
+
+    private @Nullable Channel channel() {
+        var channel = channelFuture;
+        return channel == null ? null : channel.channel();
+    }
+
+    @Override
+    public void sendText(String message) throws LuaException {
+        sendMessage(new TextWebSocketFrame(message), message.length());
+    }
+
+    @Override
+    public void sendBinary(ByteBuffer message) throws LuaException {
+        long size = message.remaining();
+        sendMessage(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(message)), size);
+    }
+
+    private void sendMessage(WebSocketFrame frame, long size) throws LuaException {
+        var channel = channel();
+        if (channel == null) return;
+
+        // Grow the number of in-flight requests, aborting if we've hit the limit. This is then decremented when the
+        // promise finishes.
+        if (!AtomicHelpers.incrementToLimit(inFlight, ResourceQueue.DEFAULT_LIMIT)) {
+            throw new LuaException("Too many ongoing websocket messages");
+        }
+
+        environment.observe(Metrics.WEBSOCKET_OUTGOING, size);
+        channel.writeAndFlush(frame).addListener(onSend);
     }
 }

@@ -13,6 +13,7 @@ import dan200.computercraft.api.upgrades.UpgradeBase;
 import dan200.computercraft.core.metrics.Metric;
 import dan200.computercraft.core.metrics.Metrics;
 import dan200.computercraft.shared.ModRegistry;
+import dan200.computercraft.shared.command.arguments.ComputerSelector;
 import dan200.computercraft.shared.computer.metrics.basic.Aggregate;
 import dan200.computercraft.shared.computer.metrics.basic.AggregatedMetric;
 import dan200.computercraft.shared.config.ConfigFile;
@@ -139,8 +140,6 @@ public final class LanguageProvider implements DataProvider {
         add("commands.computercraft.tp.synopsis", "Teleport to a specific computer.");
         add("commands.computercraft.tp.desc", "Teleport to the location of a computer. You can either specify the computer's instance id (e.g. 123) or computer id (e.g #123).");
         add("commands.computercraft.tp.action", "Teleport to this computer");
-        add("commands.computercraft.tp.not_player", "Cannot open terminal for non-player");
-        add("commands.computercraft.tp.not_there", "Cannot locate computer in the world");
         add("commands.computercraft.view.synopsis", "View the terminal of a computer.");
         add("commands.computercraft.view.desc", "Open the terminal of a computer, allowing remote control of a computer. This does not provide access to turtle's inventories. You can either specify the computer's instance id (e.g. 123) or computer id (e.g #123).");
         add("commands.computercraft.view.action", "View this computer");
@@ -158,9 +157,6 @@ public final class LanguageProvider implements DataProvider {
         add("commands.computercraft.track.dump.desc", "Dump the latest results of computer tracking.");
         add("commands.computercraft.track.dump.no_timings", "No timings available");
         add("commands.computercraft.track.dump.computer", "Computer");
-        add("commands.computercraft.reload.synopsis", "Reload the ComputerCraft config file");
-        add("commands.computercraft.reload.desc", "Reload the ComputerCraft config file");
-        add("commands.computercraft.reload.done", "Reloaded config");
         add("commands.computercraft.queue.synopsis", "Send a computer_command event to a command computer");
         add("commands.computercraft.queue.desc", "Send a computer_command event to a command computer, passing through the additional arguments. This is mostly designed for map makers, acting as a more computer-friendly version of /trigger. Any player can run the command, which would most likely be done through a text component's click event.");
 
@@ -171,14 +167,24 @@ public final class LanguageProvider implements DataProvider {
         add("commands.computercraft.generic.exception", "Unhandled exception (%s)");
         add("commands.computercraft.generic.additional_rows", "%d additional rows…");
 
+        // Argument types
+        add("argument.computercraft.computer.instance", "Unique instance ID");
+        add("argument.computercraft.computer.id", "Computer ID");
+        add("argument.computercraft.computer.label", "Computer label");
+        add("argument.computercraft.computer.distance", "Distance to entity");
+        add("argument.computercraft.computer.family", "Computer family");
+
+        // Exceptions
         add("argument.computercraft.computer.no_matching", "No computers matching '%s'");
         add("argument.computercraft.computer.many_matching", "Multiple computers matching '%s' (instances %s)");
         add("argument.computercraft.tracking_field.no_field", "Unknown field '%s'");
         add("argument.computercraft.argument_expected", "Argument expected");
+        add("argument.computercraft.unknown_computer_family", "Unknown computer family '%s'");
 
         // Metrics
         add(Metrics.COMPUTER_TASKS, "Tasks");
         add(Metrics.SERVER_TASKS, "Server tasks");
+        add(Metrics.JAVA_ALLOCATION, "Java Allocations");
         add(Metrics.PERIPHERAL_OPS, "Peripheral calls");
         add(Metrics.FS_OPS, "Filesystem operations");
         add(Metrics.HTTP_REQUESTS, "HTTP requests");
@@ -218,7 +224,6 @@ public final class LanguageProvider implements DataProvider {
         addConfigEntry(ConfigSpec.floppySpaceLimit, "Floppy Disk space limit (bytes)");
         addConfigEntry(ConfigSpec.uploadMaxSize, "File upload size limit (bytes)");
         addConfigEntry(ConfigSpec.maximumFilesOpen, "Maximum files open per computer");
-        addConfigEntry(ConfigSpec.disableLua51Features, "Disable Lua 5.1 features");
         addConfigEntry(ConfigSpec.defaultComputerSettings, "Default Computer settings");
         addConfigEntry(ConfigSpec.logComputerErrors, "Log computer errors");
         addConfigEntry(ConfigSpec.commandRequireCreative, "Command computers require creative");
@@ -279,15 +284,18 @@ public final class LanguageProvider implements DataProvider {
         return Stream.of(
             RegistryWrappers.BLOCKS.stream()
                 .filter(x -> RegistryWrappers.BLOCKS.getKey(x).getNamespace().equals(ComputerCraftAPI.MOD_ID))
-                .map(Block::getDescriptionId),
+                .map(Block::getDescriptionId)
+                // Exclude blocks that just reuse vanilla translations, such as the lectern.
+                .filter(x -> !x.startsWith("block.minecraft.")),
             RegistryWrappers.ITEMS.stream()
                 .filter(x -> RegistryWrappers.ITEMS.getKey(x).getNamespace().equals(ComputerCraftAPI.MOD_ID))
                 .map(Item::getDescriptionId),
             turtleUpgrades.getGeneratedUpgrades().stream().map(UpgradeBase::getUnlocalisedAdjective),
             pocketUpgrades.getGeneratedUpgrades().stream().map(UpgradeBase::getUnlocalisedAdjective),
             Metric.metrics().values().stream().map(x -> AggregatedMetric.TRANSLATION_PREFIX + x.name() + ".name"),
-            getConfigEntries(ConfigSpec.serverSpec).map(ConfigFile.Entry::translationKey),
-            getConfigEntries(ConfigSpec.clientSpec).map(ConfigFile.Entry::translationKey)
+            ConfigSpec.serverSpec.entries().map(ConfigFile.Entry::translationKey),
+            ConfigSpec.clientSpec.entries().map(ConfigFile.Entry::translationKey),
+            ComputerSelector.options().values().stream().map(ComputerSelector.Option::translationKey)
         ).flatMap(x -> x);
     }
 
@@ -320,17 +328,5 @@ public final class LanguageProvider implements DataProvider {
     private void addConfigEntry(ConfigFile.Entry value, String text) {
         add(value.translationKey(), text);
         add(value.translationKey() + ".tooltip", value.comment());
-    }
-
-    private static Stream<ConfigFile.Entry> getConfigEntries(ConfigFile spec) {
-        return spec.entries().flatMap(LanguageProvider::getConfigEntries);
-    }
-
-    private static Stream<ConfigFile.Entry> getConfigEntries(ConfigFile.Entry entry) {
-        if (entry instanceof ConfigFile.Value<?>) return Stream.of(entry);
-        if (entry instanceof ConfigFile.Group group) {
-            return Stream.concat(Stream.of(entry), group.children().flatMap(LanguageProvider::getConfigEntries));
-        }
-        throw new IllegalStateException("Invalid config entry " + entry);
     }
 }

@@ -38,12 +38,8 @@ java {
 repositories {
     mavenCentral()
 
-    val mainMaven = maven("https://squiddev.cc/maven") {
+    val mainMaven = maven("https://maven.squiddev.cc/mirror") {
         name = "SquidDev"
-        content {
-            // Until https://github.com/SpongePowered/Mixin/pull/593 is merged
-            includeModule("org.spongepowered", "mixin")
-        }
     }
 
     exclusiveContent {
@@ -57,15 +53,18 @@ repositories {
 
         filter {
             includeGroup("cc.tweaked")
-            includeModule("org.squiddev", "Cobalt")
             // Things we mirror
+            includeGroup("com.simibubi.create")
+            includeGroup("commoble.morered")
             includeGroup("dev.architectury")
             includeGroup("dev.emi")
             includeGroup("maven.modrinth")
             includeGroup("me.shedaniel.cloth")
             includeGroup("me.shedaniel")
             includeGroup("mezz.jei")
+            includeGroup("org.teavm")
             includeModule("com.terraformersmc", "modmenu")
+            includeModule("me.lucko", "fabric-permissions-api")
         }
     }
 }
@@ -73,6 +72,12 @@ repositories {
 dependencies {
     val libs = project.extensions.getByType<VersionCatalogsExtension>().named("libs")
     checkstyle(libs.findLibrary("checkstyle").get())
+
+    constraints {
+        checkstyle("org.codehaus.plexus:plexus-container-default:2.1.1") {
+            because("2.1.0 depends on deprecated Google collections module")
+        }
+    }
 
     errorprone(libs.findLibrary("errorProne-core").get())
     errorprone(libs.findLibrary("nullAway").get())
@@ -90,18 +95,22 @@ sourceSets.all {
             check("InlineMeSuggester", CheckSeverity.OFF) // Minecraft uses @Deprecated liberally
             // Too many false positives right now. Maybe we need an indirection for it later on.
             check("ReferenceEquality", CheckSeverity.OFF)
-            check("UnusedVariable", CheckSeverity.OFF) // Too many false positives with records.
+            check("EnumOrdinal", CheckSeverity.OFF) // For now. We could replace most of these with EnumMap.
             check("OperatorPrecedence", CheckSeverity.OFF) // For now.
-            check("AlreadyChecked", CheckSeverity.OFF) // Seems to be broken?
             check("NonOverridingEquals", CheckSeverity.OFF) // Peripheral.equals makes this hard to avoid
             check("FutureReturnValueIgnored", CheckSeverity.OFF) // Too many false positives with Netty
 
             check("NullAway", CheckSeverity.ERROR)
-            option("NullAway:AnnotatedPackages", listOf("dan200.computercraft", "net.fabricmc.fabric.api").joinToString(","))
+            option(
+                "NullAway:AnnotatedPackages",
+                listOf("dan200.computercraft", "cc.tweaked", "net.fabricmc.fabric.api").joinToString(","),
+            )
             option("NullAway:ExcludedFieldAnnotations", listOf("org.spongepowered.asm.mixin.Shadow").joinToString(","))
             option("NullAway:CastToNonNullMethod", "dan200.computercraft.core.util.Nullability.assertNonNull")
             option("NullAway:CheckOptionalEmptiness")
             option("NullAway:AcknowledgeRestrictiveAnnotations")
+
+            excludedPaths = ".*/jmh_generated/.*"
         }
     }
 }
@@ -125,8 +134,8 @@ tasks.processResources {
 tasks.withType(AbstractArchiveTask::class.java).configureEach {
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
-    dirMode = Integer.valueOf("755", 8)
-    fileMode = Integer.valueOf("664", 8)
+    filePermissions {}
+    dirPermissions {}
 }
 
 tasks.jar {
@@ -172,6 +181,12 @@ project.plugins.withType(CCTweakedPlugin::class.java) {
     }
 }
 
+tasks.register("checkstyle") {
+    description = "Run Checkstyle on all sources"
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    dependsOn(tasks.withType(Checkstyle::class.java))
+}
+
 spotless {
     encoding = StandardCharsets.UTF_8
     lineEndings = LineEnding.UNIX
@@ -189,6 +204,8 @@ spotless {
 
     val ktlintConfig = mapOf(
         "ktlint_standard_no-wildcard-imports" to "disabled",
+        "ktlint_standard_class-naming" to "disabled",
+        "ktlint_standard_function-naming" to "disabled",
         "ij_kotlin_allow_trailing_comma" to "true",
         "ij_kotlin_allow_trailing_comma_on_call_site" to "true",
     )

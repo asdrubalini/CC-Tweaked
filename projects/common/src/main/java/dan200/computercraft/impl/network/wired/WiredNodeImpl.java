@@ -13,20 +13,51 @@ import dan200.computercraft.api.network.wired.WiredSender;
 import dan200.computercraft.api.peripheral.IPeripheral;
 
 import javax.annotation.Nullable;
-import java.util.*;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 public final class WiredNodeImpl implements WiredNode {
     private @Nullable Set<PacketReceiver> receivers;
 
     final WiredElement element;
-    Map<String, IPeripheral> peripherals = Collections.emptyMap();
+    Map<String, IPeripheral> peripherals = Map.of();
 
     final HashSet<WiredNodeImpl> neighbours = new HashSet<>();
     volatile WiredNetworkImpl network;
 
+    /**
+     * A temporary field used when checking network connectivity.
+     *
+     * @see WiredNetworkImpl#remove(WiredNode)
+     */
+    @Nullable
+    NodeSet currentSet;
+
     public WiredNodeImpl(WiredElement element) {
         this.element = element;
         network = new WiredNetworkImpl(this);
+    }
+
+    @Override
+    public boolean connectTo(WiredNode node) {
+        return network.connect(this, node);
+    }
+
+    @Override
+    public boolean disconnectFrom(WiredNode node) {
+        return network == ((WiredNodeImpl) node).network && network.disconnect(this, node);
+    }
+
+    @Override
+    public boolean remove() {
+        return network.remove(this);
+    }
+
+    @Override
+    public void updatePeripherals(Map<String, IPeripheral> peripherals) {
+        network.updatePeripherals(this, peripherals);
     }
 
     @Override

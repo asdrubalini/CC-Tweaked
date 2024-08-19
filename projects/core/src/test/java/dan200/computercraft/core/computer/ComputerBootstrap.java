@@ -12,10 +12,10 @@ import dan200.computercraft.api.lua.LuaFunction;
 import dan200.computercraft.core.ComputerContext;
 import dan200.computercraft.core.computer.mainthread.MainThread;
 import dan200.computercraft.core.computer.mainthread.MainThreadConfig;
+import dan200.computercraft.core.filesystem.MemoryMount;
 import dan200.computercraft.core.terminal.Terminal;
 import dan200.computercraft.test.core.computer.BasicEnvironment;
-import dan200.computercraft.test.core.filesystem.MemoryMount;
-import dan200.computercraft.test.core.filesystem.ReadOnlyWritableMount;
+import org.intellij.lang.annotations.Language;
 import org.junit.jupiter.api.Assertions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,15 +32,15 @@ public class ComputerBootstrap {
     private static final int TPS = 20;
     public static final int MAX_TIME = 10;
 
-    public static void run(String program, Consumer<Computer> setup, int maxTimes) {
+    public static void run(@Language("lua") String program, Consumer<Computer> setup, int maxTimes) {
         var mount = new MemoryMount()
             .addFile("test.lua", program)
             .addFile("startup.lua", "assertion.assert(pcall(loadfile('test.lua', nil, _ENV))) os.shutdown()");
 
-        run(new ReadOnlyWritableMount(mount), setup, maxTimes);
+        run(mount, setup, maxTimes);
     }
 
-    public static void run(String program, int maxTimes) {
+    public static void run(@Language("lua") String program, int maxTimes) {
         run(program, x -> {
         }, maxTimes);
     }
@@ -101,7 +101,7 @@ public class ComputerBootstrap {
             try {
                 context.ensureClosed(1, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
-                throw new IllegalStateException("Runtime thread was interrupted", e);
+                Thread.currentThread().interrupt();
             }
         }
     }

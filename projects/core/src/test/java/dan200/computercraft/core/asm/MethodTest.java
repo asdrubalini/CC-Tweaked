@@ -14,7 +14,7 @@ import dan200.computercraft.core.methods.ObjectSource;
 import org.junit.jupiter.api.Test;
 
 import javax.annotation.Nullable;
-import java.util.Collections;
+import java.util.List;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
@@ -67,8 +67,8 @@ public class MethodTest {
     public void testPeripheralThrow() {
         ComputerBootstrap.run(
             "local throw = peripheral.wrap('top')\n" +
-                "local _, err = pcall(throw.thisThread) assert(err == 'pcall: !', err)\n" +
-                "local _, err = pcall(throw.mainThread) assert(err == 'pcall: !', err)",
+                "local _, err = pcall(function() throw.thisThread() end) assert(err == '/test.lua:2: !', (\"thisThread: %q\"):format(err))\n" +
+                "local _, err = pcall(function() throw.mainThread() end) assert(err == '/test.lua:3: !', (\"mainThread: %q\"):format(err))\n",
             x -> x.getEnvironment().setPeripheral(ComputerSide.TOP, new PeripheralThrow()),
             50
         );
@@ -87,6 +87,16 @@ public class MethodTest {
         ComputerBootstrap.run(
             "assert(func.call()(123) == 123)",
             x -> x.addApi(new ReturnFunction()), 50);
+    }
+
+
+    @Test
+    public void testModule() {
+        ComputerBootstrap.run(
+            """
+            assert(require "test.module".func() == 123)
+            """,
+            x -> x.addApi(new IsModule()), 50);
     }
 
     public static class MainThread implements ILuaAPI, IPeripheral {
@@ -169,7 +179,7 @@ public class MethodTest {
 
         @Override
         public Iterable<Object> getExtra() {
-            return Collections.singletonList(new GeneratorTest.Basic());
+            return List.of(new GeneratorTest.Basic());
         }
     }
 
@@ -206,7 +216,7 @@ public class MethodTest {
         }
 
         @Override
-        public MethodResult callMethod(ILuaContext context, int method, IArguments arguments) throws LuaException {
+        public MethodResult callMethod(ILuaContext context, int method, IArguments arguments) {
             return MethodResult.of();
         }
 
@@ -225,6 +235,23 @@ public class MethodTest {
         @Override
         public String[] getNames() {
             return new String[]{ "func" };
+        }
+    }
+
+    public static class IsModule implements ILuaAPI {
+        @Override
+        public String[] getNames() {
+            return new String[0];
+        }
+
+        @Override
+        public @Nullable String getModuleName() {
+            return "test.module";
+        }
+
+        @LuaFunction
+        public final int func() {
+            return 123;
         }
     }
 }

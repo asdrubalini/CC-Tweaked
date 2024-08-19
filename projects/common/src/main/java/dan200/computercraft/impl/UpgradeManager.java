@@ -18,8 +18,8 @@ import net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener;
 import net.minecraft.util.GsonHelper;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.item.ItemStack;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.util.Collection;
@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
  * @see PocketUpgrades
  */
 public class UpgradeManager<R extends UpgradeSerialiser<? extends T>, T extends UpgradeBase> extends SimpleJsonResourceReloadListener {
-    private static final Logger LOGGER = LogManager.getLogger();
+    private static final Logger LOG = LoggerFactory.getLogger(UpgradeManager.class);
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     public record UpgradeWrapper<R extends UpgradeSerialiser<? extends T>, T extends UpgradeBase>(
@@ -48,8 +48,8 @@ public class UpgradeManager<R extends UpgradeSerialiser<? extends T>, T extends 
     private final String kind;
     private final ResourceKey<Registry<R>> registry;
 
-    private Map<String, UpgradeWrapper<R, T>> current = Collections.emptyMap();
-    private Map<T, UpgradeWrapper<R, T>> currentWrappers = Collections.emptyMap();
+    private Map<String, UpgradeWrapper<R, T>> current = Map.of();
+    private Map<T, UpgradeWrapper<R, T>> currentWrappers = Map.of();
 
     public UpgradeManager(String kind, String path, ResourceKey<Registry<R>> registry) {
         super(GSON, path);
@@ -103,13 +103,13 @@ public class UpgradeManager<R extends UpgradeSerialiser<? extends T>, T extends 
             try {
                 loadUpgrade(newUpgrades, element.getKey(), element.getValue());
             } catch (IllegalArgumentException | JsonParseException e) {
-                LOGGER.error("Error loading {} {} from JSON file", kind, element.getKey(), e);
+                LOG.error("Error loading {} {} from JSON file", kind, element.getKey(), e);
             }
         }
 
         current = Collections.unmodifiableMap(newUpgrades);
         currentWrappers = newUpgrades.values().stream().collect(Collectors.toUnmodifiableMap(UpgradeWrapper::upgrade, x -> x));
-        LOGGER.info("Loaded {} {}s", current.size(), kind);
+        LOG.info("Loaded {} {}s", current.size(), kind);
     }
 
     private void loadUpgrade(Map<String, UpgradeWrapper<R, T>> current, ResourceLocation id, JsonElement json) {
@@ -123,7 +123,7 @@ public class UpgradeManager<R extends UpgradeSerialiser<? extends T>, T extends 
         // TODO: Can we track which mod this resource came from and use that instead? It's theoretically possible,
         //  but maybe not ideal for datapacks.
         var modId = id.getNamespace();
-        if (modId.equals("minecraft") || modId.equals("")) modId = ComputerCraftAPI.MOD_ID;
+        if (modId.equals("minecraft") || modId.isEmpty()) modId = ComputerCraftAPI.MOD_ID;
 
         var upgrade = serialiser.fromJson(id, root);
         if (!upgrade.getUpgradeID().equals(id)) {

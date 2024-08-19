@@ -4,20 +4,18 @@
 
 package dan200.computercraft.shared.peripheral.modem.wired;
 
+import dan200.computercraft.api.ComputerCraftTags;
 import dan200.computercraft.api.peripheral.IPeripheral;
-import dan200.computercraft.shared.ModRegistry;
+import dan200.computercraft.core.util.PeripheralHelpers;
 import dan200.computercraft.shared.computer.core.ServerContext;
 import dan200.computercraft.shared.platform.ComponentAccess;
-import dan200.computercraft.shared.platform.PlatformHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 
 import javax.annotation.Nullable;
-import java.util.Collections;
 import java.util.Map;
 
 import static dan200.computercraft.core.util.Nullability.assertNonNull;
@@ -38,8 +36,8 @@ public final class WiredModemLocalPeripheral {
     private @Nullable IPeripheral peripheral;
     private final ComponentAccess<IPeripheral> peripherals;
 
-    public WiredModemLocalPeripheral(Runnable invalidate) {
-        peripherals = PlatformHelper.get().createPeripheralAccess(x -> invalidate.run());
+    public WiredModemLocalPeripheral(ComponentAccess<IPeripheral> peripherals) {
+        this.peripherals = peripherals;
     }
 
     /**
@@ -68,7 +66,7 @@ public final class WiredModemLocalPeripheral {
                 this.id = ServerContext.get(assertNonNull(world.getServer())).getNextId("peripheral." + type);
             }
 
-            return oldPeripheral == null || !oldPeripheral.equals(peripheral);
+            return !PeripheralHelpers.equals(oldPeripheral, peripheral);
         }
     }
 
@@ -88,11 +86,6 @@ public final class WiredModemLocalPeripheral {
         return peripheral != null ? type + "_" + id : null;
     }
 
-    @Nullable
-    public IPeripheral getPeripheral() {
-        return peripheral;
-    }
-
     public boolean hasPeripheral() {
         return peripheral != null;
     }
@@ -102,9 +95,7 @@ public final class WiredModemLocalPeripheral {
     }
 
     public Map<String, IPeripheral> toMap() {
-        return peripheral == null
-            ? Collections.emptyMap()
-            : Collections.singletonMap(type + "_" + id, peripheral);
+        return peripheral == null ? Map.of() : Map.of(type + "_" + id, peripheral);
     }
 
     public void write(CompoundTag tag, String suffix) {
@@ -124,10 +115,9 @@ public final class WiredModemLocalPeripheral {
     private IPeripheral getPeripheralFrom(Level world, BlockPos pos, Direction direction) {
         var offset = pos.relative(direction);
 
-        var block = world.getBlockState(offset).getBlock();
-        if (block == ModRegistry.Blocks.WIRED_MODEM_FULL.get() || block == ModRegistry.Blocks.CABLE.get()) return null;
+        if (world.getBlockState(offset).is(ComputerCraftTags.Blocks.PERIPHERAL_HUB_IGNORE)) return null;
 
-        var peripheral = peripherals.get((ServerLevel) world, pos, direction);
+        var peripheral = peripherals.get(direction);
         return peripheral instanceof WiredModemPeripheral ? null : peripheral;
     }
 }

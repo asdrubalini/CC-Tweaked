@@ -122,7 +122,7 @@ public class OSAPI implements ILuaAPI {
     }
 
     private static long getEpochForCalendar(Calendar c) {
-        return c.getTime().getTime();
+        return c.getTimeInMillis();
     }
 
     /**
@@ -143,27 +143,27 @@ public class OSAPI implements ILuaAPI {
 
     /**
      * Starts a timer that will run for the specified number of seconds. Once
-     * the timer fires, a {@code timer} event will be added to the queue with
-     * the ID returned from this function as the first parameter.
+     * the timer fires, a [`timer`] event will be added to the queue with the ID
+     * returned from this function as the first parameter.
      * <p>
-     * As with @{os.sleep|sleep}, {@code timer} will automatically be rounded up
-     * to the nearest multiple of 0.05 seconds, as it waits for a fixed amount
-     * of world ticks.
+     * As with [sleep][`os.sleep`], the time will automatically be rounded up to
+     * the nearest multiple of 0.05 seconds, as it waits for a fixed amount of
+     * world ticks.
      *
-     * @param timer The number of seconds until the timer fires.
-     * @return The ID of the new timer. This can be used to filter the
-     * {@code timer} event, or {@link #cancelTimer cancel the timer}.
+     * @param time The number of seconds until the timer fires.
+     * @return The ID of the new timer. This can be used to filter the [`timer`]
+     * event, or {@linkplain #cancelTimer cancel the timer}.
      * @throws LuaException If the time is below zero.
      * @see #cancelTimer To cancel a timer.
      */
     @LuaFunction
-    public final int startTimer(double timer) throws LuaException {
-        return apiEnvironment.startTimer(Math.round(checkFinite(0, timer) / 0.05));
+    public final int startTimer(double time) throws LuaException {
+        return apiEnvironment.startTimer(Math.round(checkFinite(0, time) / 0.05));
     }
 
     /**
-     * Cancels a timer previously started with startTimer. This will stop the
-     * timer from firing.
+     * Cancels a timer previously started with {@link #startTimer(double)}. This
+     * will stop the timer from firing.
      *
      * @param token The ID of the timer to cancel.
      * @cc.since 1.6
@@ -175,9 +175,9 @@ public class OSAPI implements ILuaAPI {
     }
 
     /**
-     * Sets an alarm that will fire at the specified in-game time. When it
-     * fires, * an {@code alarm} event will be added to the event queue with the
-     * ID * returned from this function as the first parameter.
+     * Sets an alarm that will fire at the specified {@linkplain #time(IArguments) in-game time}.
+     * When it fires, an {@code alarm} event will be added to the event queue with the
+     * ID returned from this function as the first parameter.
      *
      * @param time The time at which to fire the alarm, in the range [0.0, 24.0).
      * @return The ID of the new alarm. This can be used to filter the
@@ -298,7 +298,7 @@ public class OSAPI implements ILuaAPI {
      * textutils.formatTime(os.time())
      * }</pre>
      * @cc.since 1.2
-     * @cc.changed 1.80pr1 Add support for getting the local local and UTC time.
+     * @cc.changed 1.80pr1 Add support for getting the local and UTC time.
      * @cc.changed 1.82.0 Arguments are now case insensitive.
      * @cc.changed 1.83.0 {@link #time(IArguments)} now accepts table arguments and converts them to UNIX timestamps.
      * @see #date To get a date table that can be converted with this function.
@@ -353,13 +353,12 @@ public class OSAPI implements ILuaAPI {
      * * If called with {@code local}, returns the number of milliseconds since 1
      * January 1970 in the server's local timezone.
      * <p>
-     * :::info
-     * The {@code ingame} time zone assumes that one Minecraft day consists of 86,400,000
-     * milliseconds. Since one in-game day is much faster than a real day (20 minutes), this
-     * will change quicker than real time - one real second is equal to 72000 in-game
-     * milliseconds. If you wish to convert this value to real time, divide by 72000; to
-     * convert to ticks (where a day is 24000 ticks), divide by 3600.
-     * :::
+     * > [!INFO]
+     * > The {@code ingame} time zone assumes that one Minecraft day consists of 86,400,000
+     * > milliseconds. Since one in-game day is much faster than a real day (20 minutes), this
+     * > will change quicker than real time - one real second is equal to 72000 in-game
+     * > milliseconds. If you wish to convert this value to real time, divide by 72000; to
+     * > convert to ticks (where a day is 24000 ticks), divide by 3600.
      *
      * @param args The locale to get the milliseconds for. Defaults to {@code ingame} if not set.
      * @return The milliseconds since the epoch depending on the selected locale.
@@ -400,10 +399,9 @@ public class OSAPI implements ILuaAPI {
      * Returns a date string (or table) using a specified format string and
      * optional time to format.
      * <p>
-     * The format string takes the same formats as C's {@code strftime} function
-     * (http://www.cplusplus.com/reference/ctime/strftime/). In extension, it
-     * can be prefixed with an exclamation mark ({@code !}) to use UTC time
-     * instead of the server's local timezone.
+     * The format string takes the same formats as C's [strftime](http://www.cplusplus.com/reference/ctime/strftime/)
+     * function. The format string can also be prefixed with an exclamation mark
+     * ({@code !}) to use UTC time instead of the server's local timezone.
      * <p>
      * If the format is exactly {@code *t} (optionally prefixed with {@code !}), a
      * table will be returned instead. This table has fields for the year, month,

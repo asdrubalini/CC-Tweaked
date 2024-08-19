@@ -25,8 +25,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public class MonitorBlockEntity extends BlockEntity {
@@ -44,13 +45,18 @@ public class MonitorBlockEntity extends BlockEntity {
     private final boolean advanced;
 
     private @Nullable ServerMonitor serverMonitor;
+
+    /**
+     * The monitor's state on the client. This is defined iff we're the origin monitor
+     * ({@code xIndex == 0 && yIndex == 0}).
+     */
     private @Nullable ClientMonitor clientMonitor;
+
     private @Nullable MonitorPeripheral peripheral;
-    private final Set<IComputerAccess> computers = new HashSet<>();
+    private final Set<IComputerAccess> computers = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     private boolean needsUpdate = false;
     private boolean needsValidating = false;
-    private boolean destroyed = false;
 
     // MonitorWatcher state.
     boolean enqueued;
@@ -89,7 +95,7 @@ public class MonitorBlockEntity extends BlockEntity {
     @Override
     public void setRemoved() {
         super.setRemoved();
-        if (clientMonitor != null && xIndex == 0 && yIndex == 0) clientMonitor.destroy();
+        if (clientMonitor != null) clientMonitor.destroy();
     }
 
     @Override
@@ -143,7 +149,7 @@ public class MonitorBlockEntity extends BlockEntity {
     private ServerMonitor getServerMonitor() {
         if (serverMonitor != null) return serverMonitor;
 
-        var origin = getOrigin().getMonitor();
+        var origin = getOrigin();
         if (origin == null) return null;
 
         return serverMonitor = origin.serverMonitor;
@@ -156,7 +162,6 @@ public class MonitorBlockEntity extends BlockEntity {
         if (xIndex == 0 && yIndex == 0) {
             // If we're the origin, set up the new monitor
             serverMonitor = new ServerMonitor(advanced, this);
-            serverMonitor.rebuild();
 
             // And propagate it to child monitors
             for (var x = 0; x < width; x++) {
@@ -170,21 +175,24 @@ public class MonitorBlockEntity extends BlockEntity {
         } else {
             // Otherwise fetch the origin and attempt to get its monitor
             // Note this may load chunks, but we don't really have a choice here.
-            var te = level.getBlockEntity(toWorldPos(0, 0));
+            var te = getLevel().getBlockEntity(toWorldPos(0, 0));
             if (!(te instanceof MonitorBlockEntity monitor)) return null;
 
             return serverMonitor = monitor.createServerMonitor();
         }
     }
 
+    private void createServerTerminal() {
+        var monitor = createServerMonitor();
+        if (monitor != null && monitor.getTerminal() == null) monitor.rebuild();
+    }
+
     @Nullable
-    public ClientMonitor getClientMonitor() {
+    public ClientMonitor getOriginClientMonitor() {
         if (clientMonitor != null) return clientMonitor;
 
-        var te = level.getBlockEntity(toWorldPos(0, 0));
-        if (!(te instanceof MonitorBlockEntity monitor)) return null;
-
-        return clientMonitor = monitor.clientMonitor;
+        var origin = getOrigin();
+        return origin == null ? null : origin.clientMonitor;
     }
 
     // Networking stuff
@@ -205,20 +213,17 @@ public class MonitorBlockEntity extends BlockEntity {
     }
 
     private void onClientLoad(int oldXIndex, int oldYIndex) {
-        if (oldXIndex != xIndex || oldYIndex != yIndex) {
-            // If our index has changed then it's possible the origin monitor has changed. Thus
-            // we'll clear our cache. If we're the origin then we'll need to remove the glList as well.
-            if (oldXIndex == 0 && oldYIndex == 0 && clientMonitor != null) clientMonitor.destroy();
+        if ((oldXIndex != xIndex || oldYIndex != yIndex) && clientMonitor != null) {
+            // If our index has changed, and we were the origin, then destroy the current monitor.
+            clientMonitor.destroy();
             clientMonitor = null;
         }
 
-        if (xIndex == 0 && yIndex == 0) {
-            // If we're the origin terminal then create it.
-            if (clientMonitor == null) clientMonitor = new ClientMonitor(this);
-        }
+        // If we're the origin terminal then create it.
+        if (xIndex == 0 && yIndex == 0 && clientMonitor == null) clientMonitor = new ClientMonitor(this);
     }
 
-    public final void read(TerminalState state) {
+    public final void read(@Nullable TerminalState state) {
         if (xIndex != 0 || yIndex != 0) {
             LOG.warn("Receiving monitor state for non-origin terminal at {}", getBlockPos());
             return;
@@ -282,7 +287,7 @@ public class MonitorBlockEntity extends BlockEntity {
     }
 
     boolean isCompatible(MonitorBlockEntity other) {
-        return !other.destroyed && advanced == other.advanced && getOrientation() == other.getOrientation() && getDirection() == other.getDirection();
+        return advanced == other.advanced && getOrientation() == other.getOrientation() && getDirection() == other.getDirection();
     }
 
     /**
@@ -305,8 +310,8 @@ public class MonitorBlockEntity extends BlockEntity {
         return isCompatible(monitor) ? MonitorState.present(monitor) : MonitorState.MISSING;
     }
 
-    private MonitorState getOrigin() {
-        return getLoadedMonitor(0, 0);
+    private @Nullable MonitorBlockEntity getOrigin() {
+        return getLoadedMonitor(0, 0).getMonitor();
     }
 
     /**
@@ -348,13 +353,15 @@ public class MonitorBlockEntity extends BlockEntity {
         // Either delete the current monitor or sync a new one.
         if (needsTerminal) {
             if (serverMonitor == null) serverMonitor = new ServerMonitor(advanced, this);
-        } else {
-            serverMonitor = null;
-        }
 
-        // Update the terminal's width and height and rebuild it. This ensures the monitor
-        // is consistent when syncing it to other monitors.
-        if (serverMonitor != null) serverMonitor.rebuild();
+            // Update the terminal's width and height and rebuild it. This ensures the monitor
+            // is consistent when syncing it to other monitors.
+            serverMonitor.rebuild();
+        } else {
+            // Remove the terminal from the serverMonitor, but keep it around - this ensures that we sync
+            // the (now blank) monitor to the client.
+            if (serverMonitor != null) serverMonitor.reset();
+        }
 
         // Update the other monitors, setting coordinates, dimensions and the server terminal
         var pos = getBlockPos();
@@ -374,6 +381,8 @@ public class MonitorBlockEntity extends BlockEntity {
                 BlockEntityHelpers.updateBlock(monitor);
             }
         }
+
+        assertInvariant();
     }
 
     void updateNeighborsDeferred() {
@@ -381,7 +390,7 @@ public class MonitorBlockEntity extends BlockEntity {
     }
 
     void expand() {
-        var monitor = getOrigin().getMonitor();
+        var monitor = getOrigin();
         if (monitor != null && monitor.xIndex == 0 && monitor.yIndex == 0) new Expander(monitor).expand();
     }
 
@@ -408,7 +417,7 @@ public class MonitorBlockEntity extends BlockEntity {
 
     @Nullable
     private MonitorBlockEntity tryResizeAt(BlockPos pos, int width, int height) {
-        var tile = level.getBlockEntity(pos);
+        var tile = getLevel().getBlockEntity(pos);
         if (tile instanceof MonitorBlockEntity monitor && isCompatible(monitor)) {
             monitor.resize(width, height);
             return monitor;
@@ -484,9 +493,10 @@ public class MonitorBlockEntity extends BlockEntity {
     }
 
     public IPeripheral peripheral() {
-        createServerMonitor();
-        if (peripheral != null) return peripheral;
-        return peripheral = new MonitorPeripheral(this);
+        createServerTerminal();
+        var peripheral = this.peripheral != null ? this.peripheral : (this.peripheral = new MonitorPeripheral(this));
+        assertInvariant();
+        return peripheral;
     }
 
     void addComputer(IComputerAccess computer) {
@@ -524,5 +534,86 @@ public class MonitorBlockEntity extends BlockEntity {
             Math.max(startPos.getY(), endPos.getY()) + 1,
             Math.max(startPos.getZ(), endPos.getZ()) + 1
         );
+    }
+
+    /**
+     * Assert all {@linkplain #checkInvariants() monitor invariants} hold.
+     */
+    private void assertInvariant() {
+        assert checkInvariants() : "Monitor invariants failed. See logs.";
+    }
+
+    /**
+     * Check various invariants about this monitor multiblock. This is only called when assertions are enabled, so
+     * will be skipped outside of tests.
+     *
+     * @return Whether all invariants passed.
+     */
+    private boolean checkInvariants() {
+        LOG.debug("Checking monitor invariants at {}", getBlockPos());
+
+        var okay = true;
+
+        if (width <= 0 || height <= 0) {
+            okay = false;
+            LOG.error("Monitor {} has non-positive of {}x{}", getBlockPos(), width, height);
+        }
+
+        var hasPeripheral = false;
+        var origin = getOrigin();
+        var serverMonitor = origin != null ? origin.serverMonitor : this.serverMonitor;
+        for (var x = 0; x < width; x++) {
+            for (var y = 0; y < height; y++) {
+                var monitor = getLoadedMonitor(x, y).getMonitor();
+                if (monitor == null) continue;
+
+                hasPeripheral |= monitor.peripheral != null;
+
+                if (monitor.serverMonitor != null && monitor.serverMonitor != serverMonitor) {
+                    okay = false;
+                    LOG.error(
+                        "Monitor {} expected to be have serverMonitor={}, but was {}",
+                        monitor.getBlockPos(), serverMonitor, monitor.serverMonitor
+                    );
+                }
+
+                if (monitor.xIndex != x || monitor.yIndex != y) {
+                    okay = false;
+                    LOG.error(
+                        "Monitor {} expected to be at {},{}, but believes it is {},{}",
+                        monitor.getBlockPos(), x, y, monitor.xIndex, monitor.yIndex
+                    );
+                }
+
+                if (monitor.width != width || monitor.height != height) {
+                    okay = false;
+                    LOG.error(
+                        "Monitor {} expected to be size {},{}, but believes it is {},{}",
+                        monitor.getBlockPos(), width, height, monitor.width, monitor.height
+                    );
+                }
+
+                var expectedState = getBlockState().setValue(MonitorBlock.STATE, MonitorEdgeState.fromConnections(
+                    y < height - 1, y > 0, x > 0, x < width - 1
+                ));
+                if (monitor.getBlockState() != expectedState) {
+                    okay = false;
+                    LOG.error(
+                        "Monitor {} expected to have state {}, but has state {}",
+                        monitor.getBlockState(), expectedState, monitor.getBlockState()
+                    );
+                }
+            }
+        }
+
+        if (hasPeripheral != (serverMonitor != null && serverMonitor.getTerminal() != null)) {
+            okay = false;
+            LOG.error(
+                "Peripheral is {}, but serverMonitor={} and serverMonitor.terminal={}",
+                hasPeripheral, serverMonitor, serverMonitor == null ? null : serverMonitor.getTerminal()
+            );
+        }
+
+        return okay;
     }
 }

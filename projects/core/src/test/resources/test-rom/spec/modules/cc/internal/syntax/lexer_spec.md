@@ -13,13 +13,13 @@ correct tokens and positions, and that it can report sensible error messages.
 We can lex some basic comments:
 
 ```lua
--- A basic singleline comment comment
+-- A basic singleline comment
 --[ Not a multiline comment
 --[= Also not a multiline comment!
 ```
 
 ```txt
-1:1-1:37 COMMENT -- A basic singleline comment comment
+1:1-1:29 COMMENT -- A basic singleline comment
 2:1-2:27 COMMENT --[ Not a multiline comment
 3:1-3:34 COMMENT --[= Also not a multiline comment!
 ```
@@ -265,6 +265,7 @@ if a != b then end
 if a ~= b then end
 if a && b then end
 if a || b then end
+if ! a then end
 ```
 
 ```txt
@@ -307,6 +308,16 @@ Tip: Replace this with or to check if either value is true.
 4:9-4:9 IDENT b
 4:11-4:14 THEN then
 4:16-4:18 END end
+5:1-5:2 IF if
+Unexpected character.
+   |
+ 5 | if ! a then end
+   |    ^
+Tip: Replace this with not to negate a boolean.
+5:4-5:4 NOT !
+5:6-5:6 IDENT a
+5:8-5:11 THEN then
+5:13-5:15 END end
 ```
 
 For entirely unknown glyphs we should just give up and return an `ERROR` token.

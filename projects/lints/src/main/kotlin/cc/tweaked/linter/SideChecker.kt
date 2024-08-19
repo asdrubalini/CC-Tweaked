@@ -32,7 +32,7 @@ enum class Side { CLIENT, SERVER, BOTH }
 )
 class SideChecker : BugChecker(), BugChecker.IdentifierTreeMatcher, BugChecker.MemberSelectTreeMatcher {
     override fun matchIdentifier(tree: IdentifierTree, state: VisitorState): Description {
-        val sym = ASTHelpers.getSymbol(tree)
+        val sym = ASTHelpers.getSymbol(tree)!!
         return when (sym.getKind()) {
             ElementKind.LOCAL_VARIABLE, ElementKind.TYPE_PARAMETER -> Description.NO_MATCH
             else -> report(tree, state)
@@ -105,7 +105,6 @@ internal class SideProvider {
     companion object {
         private val notClientPackages = listOf(
             // Ugly! But we do what we must.
-            "net.fabricmc.fabric.api.client.itemgroup",
             "dan200.computercraft.shared.network.client",
         )
 

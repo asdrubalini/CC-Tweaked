@@ -6,40 +6,30 @@ package dan200.computercraft.core.computer;
 
 import dan200.computercraft.api.lua.ILuaAPI;
 
+import javax.annotation.Nullable;
+
 /**
- * A wrapper for {@link ILuaAPI}s which cleans up after a {@link ComputerSystem} when the computer is shutdown.
+ * A wrapper for {@link ILuaAPI}s which provides an optional shutdown hook to clean up resources.
+ *
+ * @param api       The original API.
+ * @param lifecycle The optional lifecycle hooks for this API.
  */
-final class ApiWrapper implements ILuaAPI {
-    private final ILuaAPI delegate;
-    private final ComputerSystem system;
-
-    ApiWrapper(ILuaAPI delegate, ComputerSystem system) {
-        this.delegate = delegate;
-        this.system = system;
-    }
-
-    @Override
-    public String[] getNames() {
-        return delegate.getNames();
-    }
-
-    @Override
+record ApiWrapper(ILuaAPI api, @Nullable ApiLifecycle lifecycle) {
     public void startup() {
-        delegate.startup();
+        if (lifecycle != null) lifecycle.startup();
+        api.startup();
     }
 
-    @Override
     public void update() {
-        delegate.update();
+        api.update();
     }
 
-    @Override
     public void shutdown() {
-        delegate.shutdown();
-        system.unmountAll();
+        api.shutdown();
+        if (lifecycle != null) lifecycle.shutdown();
     }
 
-    public ILuaAPI getDelegate() {
-        return delegate;
+    public ILuaAPI api() {
+        return api;
     }
 }

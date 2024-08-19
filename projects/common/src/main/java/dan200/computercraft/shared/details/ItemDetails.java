@@ -50,18 +50,18 @@ public class ItemDetails {
         if (tag != null && tag.contains("display", Tag.TAG_COMPOUND)) {
             var displayTag = tag.getCompound("display");
             if (displayTag.contains("Lore", Tag.TAG_LIST)) {
-                var loreTag = displayTag.getList("Lore", Tag.TAG_STRING);
-                data.put("lore", loreTag.stream()
+                var lore = displayTag.getList("Lore", Tag.TAG_STRING).stream()
                     .map(ItemDetails::parseTextComponent)
                     .filter(Objects::nonNull)
                     .map(Component::getString)
-                    .toList());
+                    .toList();
+                if (!lore.isEmpty()) data.put("lore", lore);
             }
         }
 
         /*
          * Used to hide some data from ItemStack tooltip.
-         * @see https://minecraft.gamepedia.com/Tutorials/Command_NBT_tags
+         * @see https://minecraft.wiki/w/Tutorials/Command_NBT_tags
          * @see ItemStack#getTooltip
          */
         var hideFlags = tag != null ? tag.getInt("HideFlags") : 0;
@@ -116,6 +116,7 @@ public class ItemDetails {
      * @param enchants    The enchantment map to add it to.
      * @see EnchantmentHelper
      */
+    @SuppressWarnings("NonApiType")
     private static void addEnchantments(ListTag rawEnchants, ArrayList<Map<String, Object>> enchants) {
         if (rawEnchants.isEmpty()) return;
 

@@ -13,18 +13,23 @@ import dan200.computercraft.api.peripheral.IPeripheral;
 import dan200.computercraft.impl.AbstractComputerCraftAPI;
 import dan200.computercraft.impl.ComputerCraftAPIService;
 import dan200.computercraft.shared.config.ConfigFile;
+import dan200.computercraft.shared.network.MessageType;
 import dan200.computercraft.shared.network.NetworkMessage;
 import dan200.computercraft.shared.network.client.ClientNetworkContext;
 import dan200.computercraft.shared.network.container.ContainerData;
 import dan200.computercraft.shared.platform.*;
+import io.netty.buffer.Unpooled;
 import net.minecraft.commands.synchronization.ArgumentTypeInfo;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.TagKey;
@@ -45,12 +50,11 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import javax.annotation.Nullable;
-import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -70,29 +74,40 @@ public class TestPlatformHelper extends AbstractComputerCraftAPI implements Plat
     }
 
     @Override
-    public <T> RegistryWrappers.RegistryWrapper<T> wrap(ResourceKey<Registry<T>> registry) {
-        throw new UnsupportedOperationException("Cannot query registry inside tests");
-    }
-
-    @Override
     public <T> RegistrationHelper<T> createRegistrationHelper(ResourceKey<Registry<T>> registry) {
         throw new UnsupportedOperationException("Cannot query registry inside tests");
     }
 
-    @Override
-    public <K> ResourceLocation getRegistryKey(ResourceKey<Registry<K>> registry, K object) {
-        throw new UnsupportedOperationException("Cannot query registry inside tests");
+    @SuppressWarnings("unchecked")
+    private static <T> Registry<T> getRegistry(ResourceKey<Registry<T>> id) {
+        var registry = (Registry<T>) BuiltInRegistries.REGISTRY.get(id.location());
+        if (registry == null) throw new IllegalArgumentException("Unknown registry " + id);
+        return registry;
     }
 
     @Override
-    public <K> K getRegistryObject(ResourceKey<Registry<K>> registry, ResourceLocation id) {
-        throw new UnsupportedOperationException("Cannot query registry inside tests");
+    public <T> ResourceLocation getRegistryKey(ResourceKey<Registry<T>> registry, T object) {
+        var key = getRegistry(registry).getKey(object);
+        if (key == null) throw new IllegalArgumentException(object + " was not registered in " + registry);
+        return key;
+    }
+
+    @Override
+    public <T> T getRegistryObject(ResourceKey<Registry<T>> registry, ResourceLocation id) {
+        var value = getRegistry(registry).get(id);
+        if (value == null) throw new IllegalArgumentException(id + " was not registered in " + registry);
+        return value;
+    }
+
+    @Override
+    public <T> RegistryWrappers.RegistryWrapper<T> wrap(ResourceKey<Registry<T>> registry) {
+        return new RegistryWrapperImpl<>(registry.location(), getRegistry(registry));
     }
 
     @Nullable
     @Override
     public <T> T tryGetRegistryObject(ResourceKey<Registry<T>> registry, ResourceLocation id) {
-        throw new UnsupportedOperationException("Cannot query registries");
+        return getRegistry(registry).get(id);
     }
 
     @Override
@@ -116,31 +131,6 @@ public class TestPlatformHelper extends AbstractComputerCraftAPI implements Plat
     }
 
     @Override
-    public void sendToPlayer(NetworkMessage<ClientNetworkContext> message, ServerPlayer player) {
-        throw new UnsupportedOperationException("Cannot send NetworkMessages inside tests");
-    }
-
-    @Override
-    public void sendToPlayers(NetworkMessage<ClientNetworkContext> message, Collection<ServerPlayer> players) {
-        throw new UnsupportedOperationException("Cannot send NetworkMessages inside tests");
-    }
-
-    @Override
-    public void sendToAllPlayers(NetworkMessage<ClientNetworkContext> message, MinecraftServer server) {
-        throw new UnsupportedOperationException("Cannot send NetworkMessages inside tests");
-    }
-
-    @Override
-    public void sendToAllAround(NetworkMessage<ClientNetworkContext> message, ServerLevel level, Vec3 pos, float distance) {
-        throw new UnsupportedOperationException("Cannot send NetworkMessages inside tests");
-    }
-
-    @Override
-    public void sendToAllTracking(NetworkMessage<ClientNetworkContext> message, LevelChunk chunk) {
-        throw new UnsupportedOperationException("Cannot send NetworkMessages inside tests");
-    }
-
-    @Override
     public List<TagKey<Item>> getDyeTags() {
         throw new UnsupportedOperationException("Cannot query tags inside tests");
     }
@@ -155,13 +145,30 @@ public class TestPlatformHelper extends AbstractComputerCraftAPI implements Plat
         throw new UnsupportedOperationException("Cannot open menu inside tests");
     }
 
+    record TypeImpl<T extends NetworkMessage<?>>(
+        ResourceLocation id, Function<FriendlyByteBuf, T> reader
+    ) implements MessageType<T> {
+    }
+
     @Override
-    public ComponentAccess<IPeripheral> createPeripheralAccess(Consumer<Direction> invalidate) {
+    public <T extends NetworkMessage<?>> MessageType<T> createMessageType(int id, ResourceLocation channel, Class<T> klass, FriendlyByteBuf.Reader<T> reader) {
+        return new TypeImpl<>(channel, reader);
+    }
+
+    @Override
+    public Packet<ClientGamePacketListener> createPacket(NetworkMessage<ClientNetworkContext> message) {
+        var buf = new FriendlyByteBuf(Unpooled.buffer());
+        message.write(buf);
+        return new ClientboundCustomPayloadPacket(((TypeImpl<?>) message.type()).id(), buf);
+    }
+
+    @Override
+    public ComponentAccess<IPeripheral> createPeripheralAccess(BlockEntity owner, Consumer<Direction> invalidate) {
         throw new UnsupportedOperationException("Cannot interact with the world inside tests");
     }
 
     @Override
-    public ComponentAccess<WiredElement> createWiredElementAccess(Consumer<Direction> invalidate) {
+    public ComponentAccess<WiredElement> createWiredElementAccess(BlockEntity owner, Consumer<Direction> invalidate) {
         throw new UnsupportedOperationException("Cannot interact with the world inside tests");
     }
 
@@ -244,5 +251,49 @@ public class TestPlatformHelper extends AbstractComputerCraftAPI implements Plat
     @Override
     public String getInstalledVersion() {
         return "1.0";
+    }
+
+    private record RegistryWrapperImpl<T>(
+        ResourceLocation name, Registry<T> registry
+    ) implements RegistryWrappers.RegistryWrapper<T> {
+        @Override
+        public int getId(T object) {
+            return registry.getId(object);
+        }
+
+        @Override
+        public ResourceLocation getKey(T object) {
+            var key = registry.getKey(object);
+            if (key == null) throw new IllegalArgumentException(object + " was not registered in " + name);
+            return key;
+        }
+
+        @Override
+        public T get(ResourceLocation location) {
+            var object = registry.get(location);
+            if (object == null) throw new IllegalArgumentException(location + " was not registered in " + name);
+            return object;
+        }
+
+        @Nullable
+        @Override
+        public T tryGet(ResourceLocation location) {
+            return registry.get(location);
+        }
+
+        @Override
+        public @Nullable T byId(int id) {
+            return registry.byId(id);
+        }
+
+        @Override
+        public int size() {
+            return registry.size();
+        }
+
+        @Override
+        public Iterator<T> iterator() {
+            return registry.iterator();
+        }
     }
 }

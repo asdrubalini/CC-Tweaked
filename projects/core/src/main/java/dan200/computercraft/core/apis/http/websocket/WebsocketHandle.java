@@ -4,42 +4,43 @@
 
 package dan200.computercraft.core.apis.http.websocket;
 
-import com.google.common.base.Objects;
 import dan200.computercraft.api.lua.*;
+import dan200.computercraft.core.apis.IAPIEnvironment;
 import dan200.computercraft.core.apis.http.options.Options;
-import dan200.computercraft.core.metrics.Metrics;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
-import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
-import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 
-import javax.annotation.Nullable;
-import java.io.Closeable;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.Optional;
 
 import static dan200.computercraft.api.lua.LuaValues.checkFinite;
 import static dan200.computercraft.core.apis.IAPIEnvironment.TIMER_EVENT;
-import static dan200.computercraft.core.apis.http.websocket.Websocket.CLOSE_EVENT;
-import static dan200.computercraft.core.apis.http.websocket.Websocket.MESSAGE_EVENT;
+import static dan200.computercraft.core.apis.http.websocket.WebsocketClient.CLOSE_EVENT;
+import static dan200.computercraft.core.apis.http.websocket.WebsocketClient.MESSAGE_EVENT;
 
 /**
- * A websocket, which can be used to send an receive messages with a web server.
+ * A websocket, which can be used to send and receive messages with a web server.
  *
  * @cc.module http.Websocket
  * @see dan200.computercraft.core.apis.HTTPAPI#websocket On how to open a websocket.
  */
-public class WebsocketHandle implements Closeable {
-    private final Websocket websocket;
+public class WebsocketHandle {
+    private static final ThreadLocal<CharsetDecoder> DECODER = ThreadLocal.withInitial(() -> StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPLACE));
+
+    private final IAPIEnvironment environment;
+    private final String address;
+    private final WebsocketClient websocket;
     private final Options options;
-    private boolean closed = false;
 
-    private @Nullable Channel channel;
-
-    public WebsocketHandle(Websocket websocket, Options options, Channel channel) {
+    public WebsocketHandle(IAPIEnvironment environment, String address, WebsocketClient websocket, Options options) {
+        this.environment = environment;
+        this.address = address;
         this.websocket = websocket;
         this.options = options;
-        this.channel = channel;
     }
 
     /**
@@ -58,7 +59,7 @@ public class WebsocketHandle implements Closeable {
     public final MethodResult receive(Optional<Double> timeout) throws LuaException {
         checkOpen();
         var timeoutId = timeout.isPresent()
-            ? websocket.environment().startTimer(Math.round(checkFinite(0, timeout.get()) / 0.05))
+            ? environment.startTimer(Math.round(checkFinite(0, timeout.get()) / 0.05))
             : -1;
 
         return new ReceiveCallback(timeoutId).pull;
@@ -74,21 +75,23 @@ public class WebsocketHandle implements Closeable {
      * @cc.changed 1.81.0 Added argument for binary mode.
      */
     @LuaFunction
-    public final void send(Coerced<String> message, Optional<Boolean> binary) throws LuaException {
+    public final void send(Coerced<ByteBuffer> message, Optional<Boolean> binary) throws LuaException {
         checkOpen();
 
         var text = message.value();
-        if (options.websocketMessage != 0 && text.length() > options.websocketMessage) {
+        if (options.websocketMessage() != 0 && text.remaining() > options.websocketMessage()) {
             throw new LuaException("Message is too large");
         }
 
-        websocket.environment().observe(Metrics.WEBSOCKET_OUTGOING, text.length());
-
-        var channel = this.channel;
-        if (channel != null) {
-            channel.writeAndFlush(binary.orElse(false)
-                ? new BinaryWebSocketFrame(Unpooled.wrappedBuffer(LuaValues.encode(text)))
-                : new TextWebSocketFrame(text));
+        if (binary.orElse(false)) {
+            websocket.sendBinary(text);
+        } else {
+            try {
+                websocket.sendText(DECODER.get().decode(text).toString());
+            } catch (CharacterCodingException e) {
+                // This shouldn't happen, but worth mentioning.
+                throw new LuaException("Message is not valid UTF8");
+            }
         }
     }
 
@@ -96,25 +99,13 @@ public class WebsocketHandle implements Closeable {
      * Close this websocket. This will terminate the connection, meaning messages can no longer be sent or received
      * along it.
      */
-    @LuaFunction("close")
-    public final void doClose() {
-        close();
+    @LuaFunction
+    public final void close() {
         websocket.close();
     }
 
     private void checkOpen() throws LuaException {
-        if (closed) throw new LuaException("attempt to use a closed file");
-    }
-
-    @Override
-    public void close() {
-        closed = true;
-
-        var channel = this.channel;
-        if (channel != null) {
-            channel.close();
-            this.channel = null;
-        }
+        if (websocket.isClosed()) throw new LuaException("attempt to use a closed file");
     }
 
     private final class ReceiveCallback implements ILuaCallback {
@@ -127,12 +118,12 @@ public class WebsocketHandle implements Closeable {
 
         @Override
         public MethodResult resume(Object[] event) {
-            if (event.length >= 3 && Objects.equal(event[0], MESSAGE_EVENT) && Objects.equal(event[1], websocket.address())) {
+            if (event.length >= 3 && Objects.equals(event[0], MESSAGE_EVENT) && Objects.equals(event[1], address)) {
                 return MethodResult.of(Arrays.copyOfRange(event, 2, event.length));
-            } else if (event.length >= 2 && Objects.equal(event[0], CLOSE_EVENT) && Objects.equal(event[1], websocket.address()) && closed) {
+            } else if (event.length >= 2 && Objects.equals(event[0], CLOSE_EVENT) && Objects.equals(event[1], address) && websocket.isClosed()) {
                 // If the socket is closed abort.
                 return MethodResult.of();
-            } else if (event.length >= 2 && timeoutId != -1 && Objects.equal(event[0], TIMER_EVENT)
+            } else if (event.length >= 2 && timeoutId != -1 && Objects.equals(event[0], TIMER_EVENT)
                 && event[1] instanceof Number id && id.intValue() == timeoutId) {
                 // If we received a matching timer event then abort.
                 return MethodResult.of();

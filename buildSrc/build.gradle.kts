@@ -5,6 +5,8 @@
 plugins {
     `java-gradle-plugin`
     `kotlin-dsl`
+    alias(libs.plugins.gradleVersions)
+    alias(libs.plugins.versionCatalogUpdate)
 }
 
 // Duplicated in settings.gradle.kts
@@ -27,17 +29,17 @@ repositories {
         }
     }
 
-    maven("https://repo.spongepowered.org/repository/maven-public/") {
-        name = "Sponge"
-        content {
-            includeGroup("org.spongepowered")
-        }
-    }
-
     maven("https://maven.fabricmc.net/") {
         name = "Fabric"
         content {
             includeGroup("net.fabricmc")
+        }
+    }
+
+    maven("https://maven.squiddev.cc") {
+        name = "SquidDev"
+        content {
+            includeGroup("cc.tweaked.vanilla-extract")
         }
     }
 }
@@ -50,10 +52,10 @@ dependencies {
     implementation(libs.curseForgeGradle)
     implementation(libs.fabric.loom)
     implementation(libs.forgeGradle)
+    implementation(libs.ideaExt)
     implementation(libs.librarian)
     implementation(libs.minotaur)
-    implementation(libs.quiltflower)
-    implementation(libs.vanillaGradle)
+    implementation(libs.vanillaExtract)
 }
 
 gradlePlugin {
@@ -73,4 +75,10 @@ gradlePlugin {
             implementationClass = "cc.tweaked.gradle.NodePlugin"
         }
     }
+}
+
+versionCatalogUpdate {
+    sortByKey.set(false)
+    keep { keepUnusedLibraries.set(true) }
+    catalogFile.set(file("../gradle/libs.versions.toml"))
 }

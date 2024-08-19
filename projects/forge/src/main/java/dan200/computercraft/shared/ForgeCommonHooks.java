@@ -8,7 +8,9 @@ import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.shared.command.CommandComputerCraft;
 import dan200.computercraft.shared.computer.blocks.ComputerBlockEntity;
 import dan200.computercraft.shared.config.Config;
+import dan200.computercraft.shared.integration.Optifine;
 import dan200.computercraft.shared.network.client.UpgradesLoadedMessage;
+import dan200.computercraft.shared.network.server.ServerNetworking;
 import dan200.computercraft.shared.peripheral.commandblock.CommandBlockPeripheral;
 import dan200.computercraft.shared.peripheral.diskdrive.DiskDriveBlockEntity;
 import dan200.computercraft.shared.peripheral.modem.wired.CableBlockEntity;
@@ -17,16 +19,20 @@ import dan200.computercraft.shared.peripheral.modem.wireless.WirelessModemBlockE
 import dan200.computercraft.shared.peripheral.monitor.MonitorBlockEntity;
 import dan200.computercraft.shared.peripheral.printer.PrinterBlockEntity;
 import dan200.computercraft.shared.peripheral.speaker.SpeakerBlockEntity;
-import dan200.computercraft.shared.platform.PlatformHelper;
 import dan200.computercraft.shared.turtle.blocks.TurtleBlockEntity;
 import dan200.computercraft.shared.util.CapabilityProvider;
 import dan200.computercraft.shared.util.SidedCapabilityProvider;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.CommandBlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraftforge.event.*;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDropsEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.level.ChunkEvent;
+import net.minecraftforge.event.level.ChunkTicketLevelUpdatedEvent;
 import net.minecraftforge.event.level.ChunkWatchEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
@@ -58,6 +64,11 @@ public class ForgeCommonHooks {
     }
 
     @SubscribeEvent
+    public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
+        Optifine.warnAboutOptifine(event.getEntity()::sendSystemMessage);
+    }
+
+    @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
         CommonHooks.onServerStopped();
     }
@@ -68,8 +79,20 @@ public class ForgeCommonHooks {
     }
 
     @SubscribeEvent
+    public static void onChunkUnload(ChunkEvent.Unload event) {
+        if (event.getLevel() instanceof ServerLevel && event.getChunk() instanceof LevelChunk chunk) {
+            CommonHooks.onServerChunkUnload(chunk);
+        }
+    }
+
+    @SubscribeEvent
     public static void onChunkWatch(ChunkWatchEvent.Watch event) {
         CommonHooks.onChunkWatch(event.getChunk(), event.getPlayer());
+    }
+
+    @SubscribeEvent
+    public static void onChunkTicketLevelChanged(ChunkTicketLevelUpdatedEvent event) {
+        CommonHooks.onChunkTicketLevelChanged(event.getLevel(), event.getChunkPos(), event.getOldTicketLevel(), event.getNewTicketLevel());
     }
 
     @SubscribeEvent
@@ -81,9 +104,9 @@ public class ForgeCommonHooks {
     public static void onDatapackSync(OnDatapackSyncEvent event) {
         var packet = new UpgradesLoadedMessage();
         if (event.getPlayer() == null) {
-            PlatformHelper.get().sendToAllPlayers(packet, event.getPlayerList().getServer());
+            ServerNetworking.sendToAllPlayers(packet, event.getPlayerList().getServer());
         } else {
-            PlatformHelper.get().sendToPlayer(packet, event.getPlayer());
+            ServerNetworking.sendToPlayer(packet, event.getPlayer());
         }
     }
 

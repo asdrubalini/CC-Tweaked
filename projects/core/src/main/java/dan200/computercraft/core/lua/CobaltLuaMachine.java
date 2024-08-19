@@ -13,6 +13,7 @@ import dan200.computercraft.core.Logging;
 import dan200.computercraft.core.computer.TimeoutState;
 import dan200.computercraft.core.methods.LuaMethod;
 import dan200.computercraft.core.methods.MethodSupplier;
+import dan200.computercraft.core.util.LuaUtil;
 import dan200.computercraft.core.util.Nullability;
 import dan200.computercraft.core.util.SanitisedError;
 import org.slf4j.Logger;
@@ -25,7 +26,6 @@ import org.squiddev.cobalt.lib.Bit32Lib;
 import org.squiddev.cobalt.lib.CoreLibraries;
 
 import javax.annotation.Nullable;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serial;
 import java.nio.ByteBuffer;
@@ -49,7 +49,7 @@ public class CobaltLuaMachine implements ILuaMachine {
 
     private @Nullable String eventFilter = null;
 
-    public CobaltLuaMachine(MachineEnvironment environment, InputStream bios) throws MachineException, IOException {
+    public CobaltLuaMachine(MachineEnvironment environment, InputStream bios) throws MachineException {
         timeout = environment.timeout();
         context = environment.context();
         luaMethods = environment.luaMethods();
@@ -73,28 +73,27 @@ public class CobaltLuaMachine implements ILuaMachine {
             .build();
 
         // Set up our global table.
-        var globals = state.getMainThread().getfenv();
-        CoreLibraries.debugGlobals(state);
-        Bit32Lib.add(state, globals);
-        globals.rawset("_HOST", ValueFactory.valueOf(environment.hostString()));
-        globals.rawset("_CC_DEFAULT_SETTINGS", ValueFactory.valueOf(CoreConfig.defaultComputerSettings));
-        if (CoreConfig.disableLua51Features) globals.rawset("_CC_DISABLE_LUA51_FEATURES", Constants.TRUE);
-
-        // Add default APIs
-        for (var api : environment.apis()) addAPI(globals, api);
-
-        // And load the BIOS
         try {
+            var globals = state.globals();
+            CoreLibraries.debugGlobals(state);
+            Bit32Lib.add(state, globals);
+            globals.rawset("_HOST", ValueFactory.valueOf(environment.hostString()));
+            globals.rawset("_CC_DEFAULT_SETTINGS", ValueFactory.valueOf(CoreConfig.defaultComputerSettings));
+
+            // Add default APIs
+            for (var api : environment.apis()) addAPI(state, globals, api);
+
+            // And load the BIOS
             var value = LoadState.load(state, bios, "@bios.lua", globals);
-            mainRoutine = new LuaThread(state, value, globals);
-        } catch (CompileException e) {
+            mainRoutine = new LuaThread(state, value);
+        } catch (LuaError | CompileException e) {
             throw new MachineException(Nullability.assertNonNull(e.getMessage()));
         }
 
         timeout.addListener(timeoutListener);
     }
 
-    private void addAPI(LuaTable globals, ILuaAPI api) {
+    private void addAPI(LuaState state, LuaTable globals, ILuaAPI api) throws LuaError {
         // Add the methods of an API to the global table
         var table = wrapLuaObject(api);
         if (table == null) {
@@ -104,6 +103,9 @@ public class CobaltLuaMachine implements ILuaMachine {
 
         var names = api.getNames();
         for (var name : names) globals.rawset(name, table);
+
+        var moduleName = api.getModuleName();
+        if (moduleName != null) state.registry().getSubTable(Constants.LOADED).rawset(moduleName, table);
     }
 
     private void updateTimeout() {
@@ -165,14 +167,12 @@ public class CobaltLuaMachine implements ILuaMachine {
     private LuaTable wrapLuaObject(Object object) {
         var table = new LuaTable();
         var found = luaMethods.forEachMethod(object, (target, name, method, info) ->
-            table.rawset(name, info != null && info.nonYielding()
-                ? new BasicFunction(this, method, target, context, name)
-                : new ResultInterpreterFunction(this, method, target, context, name)));
+            table.rawset(name, new ResultInterpreterFunction(this, method, target, context, name)));
 
         return found ? table : null;
     }
 
-    private LuaValue toValue(@Nullable Object object, @Nullable IdentityHashMap<Object, LuaValue> values) {
+    private LuaValue toValue(@Nullable Object object, @Nullable IdentityHashMap<Object, LuaValue> values) throws LuaError {
         if (object == null) return Constants.NIL;
         if (object instanceof Number num) return ValueFactory.valueOf(num.doubleValue());
         if (object instanceof Boolean bool) return ValueFactory.valueOf(bool);
@@ -184,10 +184,35 @@ public class CobaltLuaMachine implements ILuaMachine {
             return ValueFactory.valueOf(bytes);
         }
 
+        // Don't share singleton values, and instead convert them to a new table.
+        if (LuaUtil.isSingletonCollection(object)) return new LuaTable();
+
         if (values == null) values = new IdentityHashMap<>(1);
         var result = values.get(object);
         if (result != null) return result;
 
+        var wrapped = toValueWorker(object, values);
+        if (wrapped == null) {
+            LOG.warn(Logging.JAVA_ERROR, "Received unknown type '{}', returning nil.", object.getClass().getName());
+            return Constants.NIL;
+        }
+
+        values.put(object, wrapped);
+        return wrapped;
+    }
+
+    /**
+     * Convert a complex Java object (such as a collection or Lua object) to a Lua value.
+     * <p>
+     * This is a worker function for {@link #toValue(Object, IdentityHashMap)}, which handles the actual construction
+     * of values, without reading/writing from the value map.
+     *
+     * @param object The object to convert.
+     * @param values The map of Java to Lua values.
+     * @return The converted value, or {@code null} if it could not be converted.
+     * @throws LuaError If the value could not be converted.
+     */
+    private @Nullable LuaValue toValueWorker(Object object, IdentityHashMap<Object, LuaValue> values) throws LuaError {
         if (object instanceof ILuaFunction) {
             return new ResultInterpreterFunction(this, FUNCTION_METHOD, object, context, object.toString());
         }
@@ -195,15 +220,12 @@ public class CobaltLuaMachine implements ILuaMachine {
         if (object instanceof IDynamicLuaObject) {
             LuaValue wrapped = wrapLuaObject(object);
             if (wrapped == null) wrapped = new LuaTable();
-            values.put(object, wrapped);
             return wrapped;
         }
 
         if (object instanceof Map<?, ?> map) {
             var table = new LuaTable();
-            values.put(object, table);
-
-            for (Map.Entry<?, ?> pair : map.entrySet()) {
+            for (var pair : map.entrySet()) {
                 var key = toValue(pair.getKey(), values);
                 var value = toValue(pair.getValue(), values);
                 if (!key.isNil() && !value.isNil()) table.rawset(key, value);
@@ -213,30 +235,21 @@ public class CobaltLuaMachine implements ILuaMachine {
 
         if (object instanceof Collection<?> objects) {
             var table = new LuaTable(objects.size(), 0);
-            values.put(object, table);
             var i = 0;
-            for (Object child : objects) table.rawset(++i, toValue(child, values));
+            for (var child : objects) table.rawset(++i, toValue(child, values));
             return table;
         }
 
         if (object instanceof Object[] objects) {
             var table = new LuaTable(objects.length, 0);
-            values.put(object, table);
             for (var i = 0; i < objects.length; i++) table.rawset(i + 1, toValue(objects[i], values));
             return table;
         }
 
-        var wrapped = wrapLuaObject(object);
-        if (wrapped != null) {
-            values.put(object, wrapped);
-            return wrapped;
-        }
-
-        LOG.warn(Logging.JAVA_ERROR, "Received unknown type '{}', returning nil.", object.getClass().getName());
-        return Constants.NIL;
+        return wrapLuaObject(object);
     }
 
-    Varargs toValues(@Nullable Object[] objects) {
+    Varargs toValues(@Nullable Object[] objects) throws LuaError {
         if (objects == null || objects.length == 0) return Constants.NONE;
         if (objects.length == 1) return toValue(objects[0], null);
 

@@ -11,9 +11,6 @@ import dan200.computercraft.shared.platform.RegistryWrappers;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.data.DataGenerator;
 import net.minecraft.data.DataProvider;
-import net.minecraft.data.loot.LootTableProvider;
-import net.minecraft.data.models.BlockModelGenerators;
-import net.minecraft.data.models.ItemModelGenerators;
 import net.minecraft.data.tags.ItemTagsProvider;
 import net.minecraft.data.tags.TagsProvider;
 import net.minecraft.resources.ResourceLocation;
@@ -29,9 +26,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -51,21 +46,16 @@ public class Generators {
     ) implements DataProviders.GeneratorSink {
         @Override
         public <T extends DataProvider> T add(DataProvider.Factory<T> factory) {
-            return generator.addProvider(factory);
+            return generator.addProvider(p -> new PrettyDataProvider<>(factory.create(p))).provider();
         }
 
         @Override
         public <T> void addFromCodec(String name, PackType type, String directory, Codec<T> codec, Consumer<BiConsumer<ResourceLocation, T>> output) {
-            generator.addProvider(out -> {
+            add(out -> {
                 Map<ResourceLocation, T> map = new HashMap<>();
                 output.accept(map::put);
                 return new JsonCodecProvider<>(out, existingFiles, ComputerCraftAPI.MOD_ID, JsonOps.INSTANCE, type, directory, codec, map);
             });
-        }
-
-        @Override
-        public void lootTable(List<LootTableProvider.SubProviderEntry> tables) {
-            add(out -> new LootTableProvider(out, Set.of(), tables));
         }
 
         @Override
@@ -97,11 +87,6 @@ public class Generators {
                     });
                 }
             });
-        }
-
-        @Override
-        public void models(Consumer<BlockModelGenerators> blocks, Consumer<ItemModelGenerators> items) {
-            add(out -> new ModelProvider(out, blocks, items));
         }
     }
 }

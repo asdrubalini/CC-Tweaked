@@ -11,29 +11,19 @@ import org.junit.jupiter.api.RepeatedTest;
 
 import java.util.Random;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Tests {@link TerminalState} round tripping works as expected.
  */
 public class TerminalStateTest {
     @RepeatedTest(5)
-    public void testCompressed() {
+    public void testRoundTrip() {
         var terminal = randomTerminal();
 
         var buffer = new FriendlyByteBuf(Unpooled.directBuffer());
-        new TerminalState(terminal, true).write(buffer);
-
-        checkEqual(terminal, read(buffer));
-        assertEquals(0, buffer.readableBytes());
-    }
-
-    @RepeatedTest(5)
-    public void testUncompressed() {
-        var terminal = randomTerminal();
-
-        var buffer = new FriendlyByteBuf(Unpooled.directBuffer());
-        new TerminalState(terminal, false).write(buffer);
+        new TerminalState(terminal).write(buffer);
 
         checkEqual(terminal, read(buffer));
         assertEquals(0, buffer.readableBytes());
@@ -53,6 +43,7 @@ public class TerminalStateTest {
     private static void checkEqual(Terminal expected, Terminal actual) {
         assertNotNull(expected, "Expected cannot be null");
         assertNotNull(actual, "Actual cannot be null");
+        assertEquals(expected.isColour(), actual.isColour(), "isColour must match");
         assertEquals(expected.getHeight(), actual.getHeight(), "Heights must match");
         assertEquals(expected.getWidth(), actual.getWidth(), "Widths must match");
 
@@ -62,13 +53,6 @@ public class TerminalStateTest {
     }
 
     private static NetworkedTerminal read(FriendlyByteBuf buffer) {
-        var state = new TerminalState(buffer);
-        assertTrue(state.colour);
-
-        if (!state.hasTerminal()) return null;
-
-        var other = new NetworkedTerminal(state.width, state.height, true);
-        state.apply(other);
-        return other;
+        return new TerminalState(buffer).create();
     }
 }

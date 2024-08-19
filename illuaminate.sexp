@@ -2,16 +2,15 @@
 
 ; SPDX-FileCopyrightText: 2021 The CC: Tweaked Developers
 ;
-; SPDX-License-Identifier: LicenseRef-CCPL
+; SPDX-License-Identifier: MPL-2.0
 
 (sources
   /doc/
-  /projects/forge/build/docs/luaJavadoc/
+  /projects/common/build/docs/luaJavadoc/
   /projects/core/src/main/resources/data/computercraft/lua/bios.lua
   /projects/core/src/main/resources/data/computercraft/lua/rom/
   /projects/core/src/test/resources/test-rom
-  /projects/web/src/mount)
-
+  /projects/web/src/frontend/mount)
 
 (doc
   ; Also defined in projects/web/build.gradle.kts
@@ -24,7 +23,7 @@
     (url https://tweaked.cc/)
     (source-link https://github.com/cc-tweaked/CC-Tweaked/blob/${commit}/${path}#L${line})
 
-    (styles /projects/web/src/styles.css)
+    (styles  /projects/web/build/rollup/index.css)
     (scripts /projects/web/build/rollup/index.js)
     (head doc/head.html))
 
@@ -37,7 +36,7 @@
 
   (library-path
     /doc/stub/
-    /projects/forge/build/docs/luaJavadoc/
+    /projects/common/build/docs/luaJavadoc/
 
     /projects/core/src/main/resources/data/computercraft/lua/rom/apis/
     /projects/core/src/main/resources/data/computercraft/lua/rom/apis/command/
@@ -50,6 +49,8 @@
 (at /
   (linters
     syntax:string-index
+    doc:docusaurus-admonition
+    doc:ldoc-reference
 
     ;; It'd be nice to avoid this, but right now there's a lot of instances of
     ;; it.
@@ -76,29 +77,24 @@
     (globals
       :max
       _CC_DEFAULT_SETTINGS
-      _CC_DISABLE_LUA51_FEATURES
       _HOST
       ;; Ideally we'd pick these up from bios.lua, but illuaminate currently
       ;; isn't smart enough.
       sleep write printError read rs)))
 
-;; We disable the unused global linter in bios.lua and the APIs. In the future
-;; hopefully we'll get illuaminate to handle this.
+;; We disable the unused global linter in bios.lua, APIs and our documentation
+;; stubs docs. In the future hopefully we'll get illuaminate to handle this.
 (at
-  (/projects/core/src/main/resources/data/computercraft/lua/bios.lua
-   /projects/core/src/main/resources/data/computercraft/lua/rom/apis/)
-  (linters -var:unused-global)
-  (lint (allow-toplevel-global true)))
-
-;; Silence some variable warnings in documentation stubs.
-(at (/doc/stub/ /projects/forge/build/docs/luaJavadoc/)
+  (/doc/stub/
+   /projects/core/src/main/resources/data/computercraft/lua/bios.lua
+   /projects/core/src/main/resources/data/computercraft/lua/rom/apis/
+   /projects/common/build/docs/luaJavadoc/)
   (linters -var:unused-global)
   (lint (allow-toplevel-global true)))
 
 ;; Suppress warnings for currently undocumented modules.
 (at
   (; Lua APIs
-   /projects/core/src/main/resources/data/computercraft/lua/rom/apis/io.lua
    /projects/core/src/main/resources/data/computercraft/lua/rom/apis/window.lua)
 
   (linters -doc:undocumented -doc:undocumented-arg -doc:undocumented-return))
@@ -109,6 +105,10 @@
    /projects/core/src/main/resources/data/computercraft/lua/rom/apis/turtle/turtle.lua)
   (linters -var:deprecated))
 
+;; Suppress unused variable warnings in the parser.
+(at /projects/core/src/main/resources/data/computercraft/lua/rom/modules/main/cc/internal/syntax/parser.lua
+  (linters -var:unused))
+
 (at /projects/core/src/test/resources/test-rom
   ; We should still be able to test deprecated members.
   (linters -var:deprecated)
@@ -118,4 +118,4 @@
       :max sleep write
       cct_test describe expect howlci fail it pending stub before_each)))
 
-(at /projects/web/src/mount/expr_template.lua (lint (globals :max __expr__)))
+(at /projects/web/src/frontend/mount/expr_template.lua (lint (globals :max __expr__)))

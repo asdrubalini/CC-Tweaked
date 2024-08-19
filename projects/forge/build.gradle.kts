@@ -8,8 +8,6 @@ import net.minecraftforge.gradle.common.util.RunConfig
 plugins {
     id("cc-tweaked.forge")
     id("cc-tweaked.gametest")
-    alias(libs.plugins.mixinGradle)
-    id("cc-tweaked.illuaminate")
     id("cc-tweaked.mod-publishing")
 }
 
@@ -55,28 +53,24 @@ minecraft {
             workingDirectory(file("run"))
             args(
                 "--mod", "computercraft", "--all",
-                "--output", file("src/generated/resources/"),
+                "--output", layout.buildDirectory.dir("generatedResources").getAbsolutePath(),
                 "--existing", project(":common").file("src/main/resources/"),
                 "--existing", file("src/main/resources/"),
             )
-            property("cct.pretty-json", "true")
         }
 
         fun RunConfig.configureForGameTest() {
             val old = lazyTokens["minecraft_classpath"]
             lazyToken("minecraft_classpath") {
-                // We do some terrible hacks here to basically find all things not already on the runtime classpath
-                // and add them. /Except/ for our source sets, as those need to load inside the Minecraft classpath.
-                val testMod = configurations["testModRuntimeClasspath"].resolve()
-                val implementation = configurations.runtimeClasspath.get().resolve()
-                val new = (testMod - implementation)
-                    .asSequence()
-                    .filter { it.isFile && !it.name.endsWith("-test-fixtures.jar") }
-                    .map { it.absolutePath }
-                    .joinToString(File.pathSeparator)
+                // Add all files in testMinecraftLibrary to the classpath.
+                val allFiles = mutableSetOf<String>()
 
                 val oldVal = old?.get()
-                if (oldVal.isNullOrEmpty()) new else oldVal + File.pathSeparator + new
+                if (!oldVal.isNullOrEmpty()) allFiles.addAll(oldVal.split(File.pathSeparatorChar))
+
+                for (file in configurations["testMinecraftLibrary"].resolve()) allFiles.add(file.absolutePath)
+
+                allFiles.joinToString(File.pathSeparator)
             }
 
             property("cctest.sources", project(":common").file("src/testMod/resources/data/cctest").absolutePath)
@@ -86,6 +80,7 @@ minecraft {
             mods.register("cctest") {
                 source(sourceSets["testMod"])
                 source(sourceSets["testFixtures"])
+                source(project(":core").sourceSets["testFixtures"])
             }
         }
 
@@ -102,28 +97,23 @@ minecraft {
             configureForGameTest()
 
             property("forge.logging.console.level", "info")
+            jvmArg("-ea")
         }
     }
 }
 
-mixin {
-    add(sourceSets.main.get(), "computercraft.refmap.json")
-    add(sourceSets.client.get(), "client-computercraft.refmap.json")
-
-    config("computercraft.mixins.json")
-    config("computercraft-client.mixins.json")
-    config("computercraft-client.forge.mixins.json")
-}
-
 configurations {
-    register("cctJavadoc")
     minecraftLibrary { extendsFrom(minecraftEmbed.get()) }
+
+    val testMinecraftLibrary by registering {
+        isCanBeResolved = true
+        isCanBeConsumed = false
+        // Prevent ending up with multiple versions of libraries on the classpath.
+        shouldResolveConsistentlyWith(minecraftLibrary.get())
+    }
 }
 
 dependencies {
-    annotationProcessor("org.spongepowered:mixin:0.8.5-SQUID:processor")
-    clientAnnotationProcessor("org.spongepowered:mixin:0.8.5-SQUID:processor")
-
     compileOnly(libs.jetbrainsAnnotations)
     annotationProcessorEverywhere(libs.autoService)
 
@@ -131,13 +121,19 @@ dependencies {
     libs.bundles.externalMods.forge.compile.get().map { compileOnly(fg.deobf(it)) }
     libs.bundles.externalMods.forge.runtime.get().map { runtimeOnly(fg.deobf(it)) }
 
+    // fg.debof only accepts a closure to configure the dependency, so doesn't work with Kotlin. We create and configure
+    // the dep first, and then pass it off to ForgeGradle.
+    (create(variantOf(libs.create.forge) { classifier("slim") }.get()) as ExternalModuleDependency)
+        .apply { isTransitive = false }.let { compileOnly(fg.deobf(it)) }
+
     // Depend on our other projects.
-    api(commonClasses(project(":forge-api")))
-    api(clientClasses(project(":forge-api")))
-    implementation(project(":core"))
+    api(commonClasses(project(":forge-api"))) { cct.exclude(this) }
+    clientApi(clientClasses(project(":forge-api"))) { cct.exclude(this) }
+    implementation(project(":core")) { cct.exclude(this) }
 
     minecraftEmbed(libs.cobalt) {
-        jarJar.ranged(this, "[${libs.versions.cobalt.asProvider().get()},${libs.versions.cobalt.next.get()})")
+        val version = libs.versions.cobalt.get()
+        jarJar.ranged(this, "[$version,${getNextVersion(version)})")
     }
     minecraftEmbed(libs.jzlib) {
         jarJar.ranged(this, "[${libs.versions.jzlib.get()},)")
@@ -165,38 +161,14 @@ dependencies {
     testModImplementation(testFixtures(project(":core")))
     testModImplementation(testFixtures(project(":forge")))
 
-    "cctJavadoc"(libs.cctJavadoc)
-}
+    // Ensure our test fixture dependencies are on the classpath
+    "testMinecraftLibrary"(libs.bundles.kotlin)
+    "testMinecraftLibrary"(libs.bundles.test)
 
-illuaminate {
-    version.set(libs.versions.illuaminate)
+    testFixturesImplementation(testFixtures(project(":core")))
 }
 
 // Compile tasks
-
-val luaJavadoc by tasks.registering(Javadoc::class) {
-    description = "Generates documentation for Java-side Lua functions."
-    group = JavaBasePlugin.DOCUMENTATION_GROUP
-
-    source(sourceSets.main.get().java)
-    source(project(":core").sourceSets.main.get().java)
-    source(project(":common").sourceSets.main.get().java)
-
-    setDestinationDir(buildDir.resolve("docs/luaJavadoc"))
-    classpath = sourceSets.main.get().compileClasspath
-
-    val options = options as StandardJavadocDocletOptions
-    options.docletpath = configurations["cctJavadoc"].files.toList()
-    options.doclet = "cc.tweaked.javadoc.LuaDoclet"
-    options.addStringOption("project-root", rootProject.file(".").absolutePath)
-    options.noTimestamp(false)
-
-    javadocTool.set(
-        javaToolchains.javadocToolFor {
-            languageVersion.set(cc.tweaked.gradle.CCTweakedPlugin.JAVA_VERSION)
-        },
-    )
-}
 
 tasks.processResources {
     inputs.property("modVersion", modVersion)
@@ -234,25 +206,7 @@ tasks.assemble { dependsOn("jarJar") }
 // Check tasks
 
 tasks.test {
-    systemProperty("cct.test-files", buildDir.resolve("tmp/testFiles").absolutePath)
-}
-
-val lintLua by tasks.registering(IlluaminateExec::class) {
-    group = JavaBasePlugin.VERIFICATION_GROUP
-    description = "Lint Lua (and Lua docs) with illuaminate"
-
-    // Config files
-    inputs.file(rootProject.file("illuaminate.sexp")).withPropertyName("illuaminate.sexp")
-    // Sources
-    inputs.files(rootProject.fileTree("doc")).withPropertyName("docs")
-    inputs.files(project(":core").fileTree("src/main/resources/data/computercraft/lua")).withPropertyName("lua rom")
-    inputs.files(luaJavadoc)
-
-    args = listOf("lint")
-    workingDir = rootProject.projectDir
-
-    doFirst { if (System.getenv("GITHUB_ACTIONS") != null) println("::add-matcher::.github/matchers/illuaminate.json") }
-    doLast { if (System.getenv("GITHUB_ACTIONS") != null) println("::remove-matcher owner=illuaminate::") }
+    systemProperty("cct.test-files", layout.buildDirectory.dir("tmp/testFiles").getAbsolutePath())
 }
 
 val runGametest by tasks.registering(JavaExec::class) {
@@ -263,7 +217,7 @@ val runGametest by tasks.registering(JavaExec::class) {
 
     setRunConfig(minecraft.runs["gameTestServer"])
 
-    systemProperty("cctest.gametest-report", project.buildDir.resolve("test-results/$name.xml").absolutePath)
+    systemProperty("cctest.gametest-report", layout.buildDirectory.dir("test-results/$name.xml").getAbsolutePath())
 }
 cct.jacoco(runGametest)
 tasks.check { dependsOn(runGametest) }
@@ -301,7 +255,7 @@ publishing {
             artifact(tasks.jarJar)
 
             mavenDependencies {
-                exclude(dependencies.create("cc.tweaked:"))
+                cct.configureExcludes(this)
                 exclude(libs.jei.forge.get())
             }
         }

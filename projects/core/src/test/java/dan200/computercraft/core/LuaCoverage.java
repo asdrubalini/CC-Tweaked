@@ -10,6 +10,8 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.squiddev.cobalt.LuaError;
+import org.squiddev.cobalt.LuaState;
 import org.squiddev.cobalt.Prototype;
 import org.squiddev.cobalt.compiler.CompileException;
 import org.squiddev.cobalt.compiler.LuaC;
@@ -44,28 +46,32 @@ class LuaCoverage {
     }
 
     void write(Writer out) throws IOException {
-        Files.find(ROOT, Integer.MAX_VALUE, (path, attr) -> attr.isRegularFile()).forEach(path -> {
-            var relative = ROOT.relativize(path);
-            var full = relative.toString().replace('\\', '/');
-            if (!full.endsWith(".lua")) return;
-
-            var possiblePaths = coverage.remove("/" + full);
-            if (possiblePaths == null) possiblePaths = coverage.remove(full);
-            if (possiblePaths == null) {
-                possiblePaths = Int2IntMaps.EMPTY_MAP;
-                LOG.warn("{} has no coverage data", full);
-            }
-
-            try {
-                writeCoverageFor(out, path, possiblePaths);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
+        try (var files = Files.find(ROOT, Integer.MAX_VALUE, (path, attr) -> attr.isRegularFile())) {
+            files.forEach(path -> writeSingleFile(out, path));
+        }
 
         for (var filename : coverage.keySet()) {
             if (filename.startsWith("/test-rom/")) continue;
             LOG.warn("Unknown file {}", filename);
+        }
+    }
+
+    private void writeSingleFile(Writer out, Path path) {
+        var relative = ROOT.relativize(path);
+        var full = relative.toString().replace('\\', '/');
+        if (!full.endsWith(".lua")) return;
+
+        var possiblePaths = coverage.remove("/" + full);
+        if (possiblePaths == null) possiblePaths = coverage.remove(full);
+        if (possiblePaths == null) {
+            possiblePaths = Int2IntMaps.EMPTY_MAP;
+            LOG.warn("{} has no coverage data", full);
+        }
+
+        try {
+            writeCoverageFor(out, path, possiblePaths);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -108,9 +114,9 @@ class LuaCoverage {
         Queue<Prototype> queue = new ArrayDeque<>();
 
         try (InputStream stream = new FileInputStream(file)) {
-            var proto = LuaC.compile(stream, "@" + file.getPath());
+            var proto = LuaC.compile(new LuaState(), stream, "@" + file.getPath());
             queue.add(proto);
-        } catch (CompileException e) {
+        } catch (LuaError | CompileException e) {
             throw new IllegalStateException("Cannot compile", e);
         }
 

@@ -5,13 +5,12 @@
 --[[- Read and write configuration options for CraftOS and your programs.
 
 When a computer starts, it reads the current value of settings from the
-`/.settings` file. These values then may be @{settings.get|read} or
-@{settings.set|modified}.
+`/.settings` file. These values then may be [read][`settings.get`] or
+[modified][`settings.set`].
 
-:::caution
-Calling @{settings.set} does _not_ update the settings file by default. You
-_must_ call @{settings.save} to persist values.
-:::
+> [!WARNING]
+> Calling [`settings.set`] does _not_ update the settings file by default. You
+> _must_ call [`settings.save`] to persist values.
 
 @module settings
 @since 1.78
@@ -20,7 +19,7 @@ _must_ call @{settings.save} to persist values.
     settings.define("my.setting", {
         description = "An example setting",
         default = 123,
-        type = number,
+        type = "number",
     })
     print("my.setting = " .. settings.get("my.setting")) -- 123
 
@@ -59,9 +58,9 @@ for _, v in ipairs(valid_types) do valid_types[v] = true end
 -- Options for this setting. This table accepts the following fields:
 --
 --  - `description`: A description which may be printed when running the `set` program.
---  - `default`: A default value, which is returned by @{settings.get} if the
+--  - `default`: A default value, which is returned by [`settings.get`] if the
 --    setting has not been changed.
---  - `type`: Require values to be of this type. @{set|Setting} the value to another type
+--  - `type`: Require values to be of this type. [Setting][`set`] the value to another type
 --    will error.
 -- @since 1.87.0
 function define(name, options)
@@ -85,9 +84,9 @@ function define(name, options)
     details[name] = options
 end
 
---- Remove a @{define|definition} of a setting.
+--- Remove a [definition][`define`] of a setting.
 --
--- If a setting has been changed, this does not remove its value. Use @{settings.unset}
+-- If a setting has been changed, this does not remove its value. Use [`settings.unset`]
 -- for that.
 --
 -- @tparam string name The name of this option
@@ -113,14 +112,13 @@ end
 
 --[[- Set the value of a setting.
 
-:::caution
-Calling @{settings.set} does _not_ update the settings file by default. You
-_must_ call @{settings.save} to persist values.
-:::
+> [!WARNING]
+> Calling [`settings.set`] does _not_ update the settings file by default. You
+> _must_ call [`settings.save`] to persist values.
 
 @tparam string name The name of the setting to set
 @param value The setting's value. This cannot be `nil`, and must be
-serialisable by @{textutils.serialize}.
+serialisable by [`textutils.serialize`].
 @throws If this value cannot be serialised
 @see settings.unset
 ]]
@@ -159,7 +157,7 @@ end
 --
 -- @tparam string name The name of the setting to get.
 -- @treturn { description? = string, default? = any, type? = string, value? = any }
--- Information about this setting. This includes all information from @{settings.define},
+-- Information about this setting. This includes all information from [`settings.define`],
 -- as well as this setting's value.
 -- @since 1.87.0
 function getDetails(name)
@@ -173,8 +171,8 @@ end
 
 --- Remove the value of a setting, setting it to the default.
 --
--- @{settings.get} will return the default value until the setting's value is
--- @{settings.set|set}, or the computer is rebooted.
+-- [`settings.get`] will return the default value until the setting's value is
+-- [set][`settings.set`], or the computer is rebooted.
 --
 -- @tparam string name The name of the setting to unset.
 -- @see settings.set
@@ -184,8 +182,8 @@ function unset(name)
     set_value(name, nil)
 end
 
---- Resets the value of all settings. Equivalent to calling @{settings.unset}
---- on every setting.
+--- Resets the value of all settings. Equivalent to calling [`settings.unset`]
+-- on every setting.
 --
 -- @see settings.unset
 function clear()
@@ -215,16 +213,16 @@ end
 -- Existing settings will be merged with any pre-existing ones. Conflicting
 -- entries will be overwritten, but any others will be preserved.
 --
--- @tparam[opt] string sPath The file to load from, defaulting to `.settings`.
+-- @tparam[opt=".settings"] string path The file to load from.
 -- @treturn boolean Whether settings were successfully read from this
 -- file. Reasons for failure may include the file not existing or being
 -- corrupted.
 --
 -- @see settings.save
--- @changed 1.87.0 `sPath` is now optional.
-function load(sPath)
-    expect(1, sPath, "string", "nil")
-    local file = fs.open(sPath or ".settings", "r")
+-- @changed 1.87.0 `path` is now optional.
+function load(path)
+    expect(1, path, "string", "nil")
+    local file = fs.open(path or ".settings", "r")
     if not file then
         return false
     end
@@ -257,14 +255,14 @@ end
 -- This will entirely overwrite the pre-existing file. Settings defined in the
 -- file, but not currently loaded will be removed.
 --
--- @tparam[opt] string sPath The path to save settings to, defaulting to `.settings`.
+-- @tparam[opt=".settings"] string path The path to save settings to.
 -- @treturn boolean If the settings were successfully saved.
 --
 -- @see settings.load
--- @changed 1.87.0 `sPath` is now optional.
-function save(sPath)
-    expect(1, sPath, "string", "nil")
-    local file = fs.open(sPath or ".settings", "w")
+-- @changed 1.87.0 `path` is now optional.
+function save(path)
+    expect(1, path, "string", "nil")
+    local file = fs.open(path or ".settings", "w")
     if not file then
         return false
     end

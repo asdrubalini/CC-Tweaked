@@ -4,8 +4,8 @@
 
 package dan200.computercraft.core.filesystem;
 
+import dan200.computercraft.api.filesystem.FileAttributes;
 import dan200.computercraft.api.filesystem.FileOperationException;
-import dan200.computercraft.core.util.Nullability;
 
 import javax.annotation.Nullable;
 import java.io.Closeable;
@@ -14,15 +14,17 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import static dan200.computercraft.api.filesystem.MountConstants.EPOCH;
+import static dan200.computercraft.api.filesystem.MountConstants.NO_SUCH_FILE;
+
 /**
  * A mount which reads zip/jar files.
  */
-public class JarMount extends ArchiveMount<JarMount.FileEntry> implements Closeable {
+public final class JarMount extends ArchiveMount<JarMount.FileEntry> implements Closeable {
     private final ZipFile zip;
 
     public JarMount(File jarFile, String subPath) throws IOException {
@@ -42,64 +44,41 @@ public class JarMount extends ArchiveMount<JarMount.FileEntry> implements Closea
         }
 
         // Read in all the entries
-        root = new FileEntry("");
+        var root = this.root = new FileEntry();
         var zipEntries = zip.entries();
         while (zipEntries.hasMoreElements()) {
             var entry = zipEntries.nextElement();
 
-            var entryPath = entry.getName();
-            if (!entryPath.startsWith(subPath)) continue;
+            var localPath = getLocalPath(entry.getName(), subPath);
+            if (localPath == null) continue;
 
-            var localPath = FileSystem.toLocal(entryPath, subPath);
-            create(entry, localPath);
+            getOrCreateChild(root, localPath, x -> new FileEntry()).setup(entry);
         }
-    }
-
-    private void create(ZipEntry entry, String localPath) {
-        var lastEntry = Nullability.assertNonNull(root);
-
-        var lastIndex = 0;
-        while (lastIndex < localPath.length()) {
-            var nextIndex = localPath.indexOf('/', lastIndex);
-            if (nextIndex < 0) nextIndex = localPath.length();
-
-            var part = localPath.substring(lastIndex, nextIndex);
-            if (lastEntry.children == null) lastEntry.children = new HashMap<>(0);
-
-            var nextEntry = lastEntry.children.get(part);
-            if (nextEntry == null || !nextEntry.isDirectory()) {
-                lastEntry.children.put(part, nextEntry = new FileEntry(localPath.substring(0, nextIndex)));
-            }
-
-            lastEntry = nextEntry;
-            lastIndex = nextIndex + 1;
-        }
-
-        lastEntry.setup(entry);
     }
 
     @Override
-    protected long getSize(FileEntry file) throws FileOperationException {
-        if (file.zipEntry == null) throw new FileOperationException(file.path, NO_SUCH_FILE);
+    protected long getFileSize(String path, FileEntry file) throws FileOperationException {
+        if (file.zipEntry == null) throw new FileOperationException(path, NO_SUCH_FILE);
         return file.zipEntry.getSize();
     }
 
     @Override
-    protected byte[] getContents(FileEntry file) throws FileOperationException {
-        if (file.zipEntry == null) throw new FileOperationException(file.path, NO_SUCH_FILE);
+    protected byte[] getFileContents(String path, FileEntry file) throws FileOperationException {
+        if (file.zipEntry == null) throw new FileOperationException(path, NO_SUCH_FILE);
 
         try (var stream = zip.getInputStream(file.zipEntry)) {
             return stream.readAllBytes();
         } catch (IOException e) {
             // Mask other IO exceptions as a non-existent file.
-            throw new FileOperationException(file.path, NO_SUCH_FILE);
+            throw new FileOperationException(path, NO_SUCH_FILE);
         }
     }
 
     @Override
-    public BasicFileAttributes getAttributes(FileEntry file) throws FileOperationException {
-        if (file.zipEntry == null) throw new FileOperationException(file.path, NO_SUCH_FILE);
-        return new ZipEntryAttributes(file.zipEntry);
+    protected BasicFileAttributes getAttributes(String path, FileEntry file) throws IOException {
+        return file.zipEntry == null ? super.getAttributes(path, file) : new FileAttributes(
+            file.isDirectory(), getSize(path, file), orEpoch(file.zipEntry.getCreationTime()), orEpoch(file.zipEntry.getLastModifiedTime())
+        );
     }
 
     @Override
@@ -107,79 +86,17 @@ public class JarMount extends ArchiveMount<JarMount.FileEntry> implements Closea
         zip.close();
     }
 
-    protected static class FileEntry extends ArchiveMount.FileEntry<FileEntry> {
+    protected static final class FileEntry extends ArchiveMount.FileEntry<FileEntry> {
         @Nullable
         ZipEntry zipEntry;
 
-        protected FileEntry(String path) {
-            super(path);
-        }
-
         void setup(ZipEntry entry) {
             zipEntry = entry;
-            size = entry.getSize();
             if (children == null && entry.isDirectory()) children = new HashMap<>(0);
         }
     }
 
-    private static class ZipEntryAttributes implements BasicFileAttributes {
-        private final ZipEntry entry;
-
-        ZipEntryAttributes(ZipEntry entry) {
-            this.entry = entry;
-        }
-
-        @Override
-        public FileTime lastModifiedTime() {
-            return orEpoch(entry.getLastModifiedTime());
-        }
-
-        @Override
-        public FileTime lastAccessTime() {
-            return orEpoch(entry.getLastAccessTime());
-        }
-
-        @Override
-        public FileTime creationTime() {
-            var time = entry.getCreationTime();
-            return time == null ? lastModifiedTime() : time;
-        }
-
-        @Override
-        public boolean isRegularFile() {
-            return !entry.isDirectory();
-        }
-
-        @Override
-        public boolean isDirectory() {
-            return entry.isDirectory();
-        }
-
-        @Override
-        public boolean isSymbolicLink() {
-            return false;
-        }
-
-        @Override
-        public boolean isOther() {
-            return false;
-        }
-
-        @Override
-        public long size() {
-            return entry.getSize();
-        }
-
-        @Nullable
-        @Override
-        public Object fileKey() {
-            return null;
-        }
-
-        private static final FileTime EPOCH = FileTime.from(Instant.EPOCH);
-
-        private static FileTime orEpoch(@Nullable FileTime time) {
-            return time == null ? EPOCH : time;
-        }
+    private static FileTime orEpoch(@Nullable FileTime time) {
+        return time == null ? EPOCH : time;
     }
 }

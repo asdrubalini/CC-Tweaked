@@ -4,9 +4,14 @@
 
 package dan200.computercraft.shared.computer.menu;
 
-import dan200.computercraft.shared.computer.upload.*;
+import dan200.computercraft.core.apis.handles.ByteBufferChannel;
+import dan200.computercraft.core.apis.transfer.TransferredFile;
+import dan200.computercraft.core.apis.transfer.TransferredFiles;
+import dan200.computercraft.shared.computer.upload.FileSlice;
+import dan200.computercraft.shared.computer.upload.FileUpload;
+import dan200.computercraft.shared.computer.upload.UploadResult;
 import dan200.computercraft.shared.network.client.UploadResultMessage;
-import dan200.computercraft.shared.platform.PlatformHelper;
+import dan200.computercraft.shared.network.server.ServerNetworking;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import net.minecraft.network.chat.Component;
@@ -18,7 +23,6 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nullable;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * The default concrete implementation of {@link ServerInputHandler}.
@@ -134,7 +138,7 @@ public class ServerInputState<T extends AbstractContainerMenu & ComputerMenu> im
             return;
         }
 
-        PlatformHelper.get().sendToPlayer(finishUpload(uploader), uploader);
+        ServerNetworking.sendToPlayer(finishUpload(uploader), uploader);
     }
 
     private UploadResultMessage finishUpload(ServerPlayer player) {
@@ -150,8 +154,14 @@ public class ServerInputState<T extends AbstractContainerMenu & ComputerMenu> im
             }
         }
 
-        computer.queueEvent("file_transfer", new Object[]{
-            new TransferredFiles(player, owner, toUpload.stream().map(x -> new TransferredFile(x.getName(), x.getBytes())).collect(Collectors.toList())),
+        computer.queueEvent(TransferredFiles.EVENT, new Object[]{
+            new TransferredFiles(
+                toUpload.stream().map(x -> new TransferredFile(x.getName(), new ByteBufferChannel(x.getBytes()))).toList(),
+                () -> {
+                    if (player.isAlive() && player.containerMenu == owner) {
+                        ServerNetworking.sendToPlayer(UploadResultMessage.consumed(owner), player);
+                    }
+                }),
         });
         return UploadResultMessage.queued(owner);
     }

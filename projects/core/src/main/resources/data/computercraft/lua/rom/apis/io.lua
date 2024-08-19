@@ -74,10 +74,10 @@ handleMetatable = {
 
         This can be used in a for loop to iterate over all lines of a file
 
-        Once the end of the file has been reached, @{nil} will be returned. The file is
+        Once the end of the file has been reached, [`nil`] will be returned. The file is
         *not* automatically closed.
 
-        @param ... The argument to pass to @{Handle:read} for each line.
+        @param ... The argument to pass to [`Handle:read`] for each line.
         @treturn function():string|nil The line iterator.
         @throws If the file cannot be opened for reading
         @since 1.3
@@ -307,7 +307,7 @@ end
 -- @since 1.55
 function input(file)
     if type_of(file) == "string" then
-        local res, err = open(file, "rb")
+        local res, err = open(file, "r")
         if not res then error(err, 2) end
         currentInput = res
     elseif type_of(file) == "table" and getmetatable(file) == handleMetatable then
@@ -324,14 +324,14 @@ each time it is called, returns a new line from the file.
 
 This can be used in a for loop to iterate over all lines of a file
 
-Once the end of the file has been reached, @{nil} will be returned. The file is
+Once the end of the file has been reached, [`nil`] will be returned. The file is
 automatically closed.
 
-If no file name is given, the @{io.input|current input} will be used instead.
+If no file name is given, the [current input][`io.input`] will be used instead.
 In this case, the handle is not used.
 
 @tparam[opt] string filename The name of the file to extract lines from
-@param ... The argument to pass to @{Handle:read} for each line.
+@param ... The argument to pass to [`Handle:read`] for each line.
 @treturn function():string|nil The line iterator.
 @throws If the file cannot be opened for reading
 
@@ -349,7 +349,7 @@ end
 function lines(filename, ...)
     expect(1, filename, "string", "nil")
     if filename then
-        local ok, err = open(filename, "rb")
+        local ok, err = open(filename, "r")
         if not ok then error(err, 2) end
 
         -- We set this magic flag to mark this file as being opened by io.lines and so should be
@@ -362,27 +362,29 @@ function lines(filename, ...)
 end
 
 --- Open a file with the given mode, either returning a new file handle
--- or @{nil}, plus an error message.
+-- or [`nil`], plus an error message.
 --
 -- The `mode` string can be any of the following:
---  - **"r"**: Read mode
---  - **"w"**: Write mode
---  - **"a"**: Append mode
+--  - **"r"**: Read mode.
+--  - **"w"**: Write mode.
+--  - **"a"**: Append mode.
+--  - **"r+"**: Update mode (allows reading and writing), all data is preserved.
+--  - **"w+"**: Update mode, all data is erased.
 --
 -- The mode may also have a `b` at the end, which opens the file in "binary
--- mode". This allows you to read binary files, as well as seek within a file.
+-- mode". This has no impact on functionality.
 --
 -- @tparam string filename The name of the file to open.
--- @tparam[opt] string mode The mode to open the file with. This defaults to `rb`.
+-- @tparam[opt] string mode The mode to open the file with. This defaults to `r`.
 -- @treturn[1] Handle The opened file.
 -- @treturn[2] nil In case of an error.
 -- @treturn[2] string The reason the file could not be opened.
+-- @changed 1.111.0 Add support for `r+` and `w+`.
 function open(filename, mode)
     expect(1, filename, "string")
     expect(2, mode, "string", "nil")
 
-    local sMode = mode and mode:gsub("%+", "") or "rb"
-    local file, err = fs.open(filename, sMode)
+    local file, err = fs.open(filename, mode or "r")
     if not file then return nil, err end
 
     return make_file(file)
@@ -410,11 +412,11 @@ end
 
 --- Read from the currently opened input file.
 --
--- This is equivalent to `io.input():read(...)`. See @{Handle:read|the
--- documentation} there for full details.
+-- This is equivalent to `io.input():read(...)`. See [the documentation][`Handle:read`]
+-- there for full details.
 --
 -- @tparam string ... The formats to read, defaulting to a whole line.
--- @treturn (string|nil)... The data read, or @{nil} if nothing can be read.
+-- @treturn (string|nil)... The data read, or [`nil`] if nothing can be read.
 function read(...)
     return currentInput:read(...)
 end
@@ -438,8 +440,8 @@ end
 
 --- Write to the currently opened output file.
 --
--- This is equivalent to `io.output():write(...)`. See @{Handle:write|the
--- documentation} there for full details.
+-- This is equivalent to `io.output():write(...)`. See [the documentation][`Handle:write`]
+-- there for full details.
 --
 -- @tparam string ... The strings to write
 -- @changed 1.81.0 Multiple arguments are now allowed.

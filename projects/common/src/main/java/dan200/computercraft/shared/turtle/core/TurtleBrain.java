@@ -4,7 +4,6 @@
 
 package dan200.computercraft.shared.turtle.core;
 
-import com.google.common.base.Objects;
 import com.mojang.authlib.GameProfile;
 import dan200.computercraft.api.lua.ILuaCallback;
 import dan200.computercraft.api.lua.MethodResult;
@@ -15,6 +14,7 @@ import dan200.computercraft.api.turtle.TurtleCommand;
 import dan200.computercraft.api.turtle.TurtleSide;
 import dan200.computercraft.api.upgrades.UpgradeData;
 import dan200.computercraft.core.computer.ComputerSide;
+import dan200.computercraft.core.util.PeripheralHelpers;
 import dan200.computercraft.impl.TurtleUpgrades;
 import dan200.computercraft.shared.computer.core.ComputerFamily;
 import dan200.computercraft.shared.computer.core.ServerComputer;
@@ -43,7 +43,6 @@ import net.minecraft.world.phys.Vec3;
 import javax.annotation.Nullable;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
 
 import static dan200.computercraft.shared.common.IColouredItem.NBT_COLOUR;
 import static dan200.computercraft.shared.util.WaterloggableHelpers.WATERLOGGED;
@@ -59,8 +58,6 @@ public class TurtleBrain implements TurtleAccessInternal {
     private static final String NBT_SLOT = "Slot";
 
     private static final int ANIM_DURATION = 8;
-
-    public static final Predicate<Entity> PUSHABLE_ENTITY = entity -> !entity.isSpectator() && entity.getPistonPushReaction() != PushReaction.IGNORE;
 
     private TurtleBlockEntity owner;
     private @Nullable GameProfile owningPlayer;
@@ -293,14 +290,13 @@ public class TurtleBrain implements TurtleAccessInternal {
                         newTurtle.transferStateFrom(oldOwner);
 
                         var computer = newTurtle.createServerComputer();
-                        computer.setLevel((ServerLevel) world);
-                        computer.setPosition(pos);
+                        computer.setPosition((ServerLevel) world, pos);
 
                         // Remove the old turtle
                         oldWorld.removeBlock(oldPos, false);
 
                         // Make sure everybody knows about it
-                        newTurtle.updateOutput();
+                        newTurtle.updateRedstone();
                         newTurtle.updateInputsImmediately();
                         return true;
                     }
@@ -396,11 +392,7 @@ public class TurtleBrain implements TurtleAccessInternal {
 
     @Override
     public int getFuelLimit() {
-        if (owner.getFamily() == ComputerFamily.ADVANCED) {
-            return Config.advancedTurtleFuelLimit;
-        } else {
-            return Config.turtleFuelLimit;
-        }
+        return owner.getFuelLimit();
     }
 
     @Override
@@ -455,7 +447,7 @@ public class TurtleBrain implements TurtleAccessInternal {
     }
 
     public void setOverlay(@Nullable ResourceLocation overlay) {
-        if (!Objects.equal(this.overlay, overlay)) {
+        if (!Objects.equals(this.overlay, overlay)) {
             this.overlay = overlay;
             BlockEntityHelpers.updateBlock(owner);
         }
@@ -573,7 +565,7 @@ public class TurtleBrain implements TurtleAccessInternal {
 
     public float getToolRenderAngle(TurtleSide side, float f) {
         return (side == TurtleSide.LEFT && animation == TurtleAnimation.SWING_LEFT_TOOL) ||
-               (side == TurtleSide.RIGHT && animation == TurtleAnimation.SWING_RIGHT_TOOL)
+            (side == TurtleSide.RIGHT && animation == TurtleAnimation.SWING_RIGHT_TOOL)
             ? 45.0f * (float) Math.sin(getAnimationFraction(f) * Math.PI)
             : 0.0f;
     }
@@ -597,7 +589,7 @@ public class TurtleBrain implements TurtleAccessInternal {
             }
 
             var existing = peripherals.get(side);
-            if (existing == peripheral || (existing != null && peripheral != null && existing.equals(peripheral))) {
+            if (PeripheralHelpers.equals(existing, peripheral)) {
                 // If the peripheral is the same, just use that.
                 peripheral = existing;
             } else {
@@ -615,7 +607,7 @@ public class TurtleBrain implements TurtleAccessInternal {
 
         // If we've got a computer, ensure that we're allowed to perform work.
         var computer = owner.getServerComputer();
-        if (computer != null && !computer.getComputer().getMainThreadMonitor().canWork()) return;
+        if (computer != null && !computer.getMainThreadMonitor().canWork()) return;
 
         // Pull a new command
         var nextCommand = commandQueue.poll();
@@ -628,7 +620,7 @@ public class TurtleBrain implements TurtleAccessInternal {
 
         // Dispatch the callback
         if (computer == null) return;
-        computer.getComputer().getMainThreadMonitor().trackWork(end - start, TimeUnit.NANOSECONDS);
+        computer.getMainThreadMonitor().trackWork(end - start, TimeUnit.NANOSECONDS);
         var callbackID = nextCommand.callbackID();
         if (callbackID < 0) return;
 
@@ -699,7 +691,7 @@ public class TurtleBrain implements TurtleAccessInternal {
                     }
 
                     var aabb = new AABB(minX, minY, minZ, maxX, maxY, maxZ);
-                    var list = world.getEntitiesOfClass(Entity.class, aabb, PUSHABLE_ENTITY);
+                    var list = world.getEntitiesOfClass(Entity.class, aabb, TurtleBrain::canPush);
                     if (!list.isEmpty()) {
                         double pushStep = 1.0f / ANIM_DURATION;
                         var pushStepX = moveDir.getStepX() * pushStep;
@@ -740,6 +732,10 @@ public class TurtleBrain implements TurtleAccessInternal {
                 lastAnimationProgress = 0;
             }
         }
+    }
+
+    private static boolean canPush(Entity entity) {
+        return !entity.isSpectator() && entity.getPistonPushReaction() != PushReaction.IGNORE;
     }
 
     private float getAnimationFraction(float f) {

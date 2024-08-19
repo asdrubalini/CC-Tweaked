@@ -4,35 +4,44 @@
 
 package dan200.computercraft.shared.computer.recipe;
 
+import com.mojang.serialization.DataResult;
 import dan200.computercraft.shared.ModRegistry;
-import dan200.computercraft.shared.computer.core.ComputerFamily;
 import dan200.computercraft.shared.computer.items.IComputerItem;
-import net.minecraft.core.NonNullList;
+import dan200.computercraft.shared.recipe.ShapedRecipeSpec;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.CraftingBookCategory;
-import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.RecipeSerializer;
 
-public final class ComputerUpgradeRecipe extends ComputerFamilyRecipe {
-    private ComputerUpgradeRecipe(ResourceLocation identifier, String group, CraftingBookCategory category, int width, int height, NonNullList<Ingredient> ingredients, ItemStack result, ComputerFamily family) {
-        super(identifier, group, category, width, height, ingredients, result, family);
+/**
+ * A recipe which "upgrades" a {@linkplain IComputerItem computer}, converting to it a new item (for instance a normal
+ * turtle to an advanced one).
+ *
+ * @see IComputerItem#changeItem(ItemStack, Item)
+ */
+public final class ComputerUpgradeRecipe extends ComputerConvertRecipe {
+    private final Item result;
+
+    private ComputerUpgradeRecipe(ResourceLocation identifier, ShapedRecipeSpec recipe) {
+        super(identifier, recipe);
+        this.result = recipe.result().getItem();
+    }
+
+    public static DataResult<ComputerUpgradeRecipe> of(ResourceLocation id, ShapedRecipeSpec recipe) {
+        if (!(recipe.result().getItem() instanceof IComputerItem)) {
+            return DataResult.error(() -> recipe.result().getItem() + " is not a computer item");
+        }
+
+        return DataResult.success(new ComputerUpgradeRecipe(id, recipe));
     }
 
     @Override
     protected ItemStack convert(IComputerItem item, ItemStack stack) {
-        return item.withFamily(stack, getFamily());
+        return item.changeItem(stack, result);
     }
 
     @Override
-    public RecipeSerializer<?> getSerializer() {
+    public RecipeSerializer<ComputerUpgradeRecipe> getSerializer() {
         return ModRegistry.RecipeSerializers.COMPUTER_UPGRADE.get();
-    }
-
-    public static class Serializer extends ComputerFamilyRecipe.Serializer<ComputerUpgradeRecipe> {
-        @Override
-        protected ComputerUpgradeRecipe create(ResourceLocation identifier, String group, CraftingBookCategory category, int width, int height, NonNullList<Ingredient> ingredients, ItemStack result, ComputerFamily family) {
-            return new ComputerUpgradeRecipe(identifier, group, category, width, height, ingredients, result, family);
-        }
     }
 }

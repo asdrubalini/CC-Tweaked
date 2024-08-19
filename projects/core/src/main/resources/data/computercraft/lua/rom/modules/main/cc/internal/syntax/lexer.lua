@@ -4,17 +4,16 @@
 
 --[[- A lexer for Lua source code.
 
-:::warning
-This is an internal module and SHOULD NOT be used in your own code. It may
-be removed or changed at any time.
-:::
+> [!DANGER]
+> This is an internal module and SHOULD NOT be used in your own code. It may
+> be removed or changed at any time.
 
 This module provides utilities for lexing Lua code, returning tokens compatible
-with @{cc.internal.syntax.parser}. While all lexers are roughly the same, there
+with [`cc.internal.syntax.parser`]. While all lexers are roughly the same, there
 are some design choices worth drawing attention to:
 
- - The lexer uses Lua patterns (i.e. @{string.find}) as much as possible,
-   trying to avoid @{string.sub} loops except when needed. This allows us to
+ - The lexer uses Lua patterns (i.e. [`string.find`]) as much as possible,
+   trying to avoid [`string.sub`] loops except when needed. This allows us to
    move string processing to native code, which ends up being much faster.
 
  - We try to avoid allocating where possible. There are some cases we need to
@@ -33,12 +32,12 @@ local tokens = require "cc.internal.syntax.parser".tokens
 local sub, find = string.sub, string.find
 
 local keywords = {
-    ["and"]      = tokens.AND,      ["break"] = tokens.BREAK, ["do"]    = tokens.DO,    ["else"]   = tokens.ELSE,
-    ["elseif"]   = tokens.ELSEIF,   ["end"]   = tokens.END,   ["false"] = tokens.FALSE, ["for"]    = tokens.FOR,
-    ["function"] = tokens.FUNCTION, ["if"]    = tokens.IF,    ["in"]    = tokens.IN,    ["local"]  = tokens.LOCAL,
-    ["nil"]      = tokens.NIL,      ["not"]   = tokens.NOT,   ["or"]    = tokens.OR,    ["repeat"] = tokens.REPEAT,
-    ["return"]   = tokens.RETURN,   ["then"]  = tokens.THEN,  ["true"]  = tokens.TRUE,  ["until"]  = tokens.UNTIL,
-    ["while"]    = tokens.WHILE,
+    ["and"]      = tokens.AND,      ["break"]  = tokens.BREAK,  ["do"]    = tokens.DO,    ["else"] = tokens.ELSE,
+    ["elseif"]   = tokens.ELSEIF,   ["end"]    = tokens.END,    ["false"] = tokens.FALSE, ["for"]  = tokens.FOR,
+    ["function"] = tokens.FUNCTION, ["goto"]   = tokens.GOTO,   ["if"]    = tokens.IF,    ["in"]   = tokens.IN,
+    ["local"]    = tokens.LOCAL,    ["nil"]    = tokens.NIL,    ["not"]   = tokens.NOT,   ["or"]   = tokens.OR,
+    ["repeat"]   = tokens.REPEAT,   ["return"] = tokens.RETURN, ["then"]  = tokens.THEN,  ["true"] = tokens.TRUE,
+    ["until"]    = tokens.UNTIL,    ["while"]  = tokens.WHILE,
 }
 
 --- Lex a newline character
@@ -178,7 +177,7 @@ end
 -- @tparam number start The start position, after the input boundary.
 -- @tparam number len The expected length of the boundary. Equal to 1 + the
 -- number of `=`.
--- @treturn number|nil The end position, or @{nil} if this is not terminated.
+-- @treturn number|nil The end position, or [`nil`] if this is not terminated.
 local function lex_long_str(context, str, start, len)
     local pos = start
     while true do
@@ -293,12 +292,15 @@ local function lex_token(context, str, pos)
         local next_pos = pos + 1
         if sub(str, next_pos, next_pos) == "=" then return tokens.LE, next_pos end
         return tokens.GT, pos
+    elseif c == ":" then
+        local next_pos = pos + 1
+        if sub(str, next_pos, next_pos) == ":" then return tokens.DOUBLE_COLON, next_pos end
+        return tokens.COLON, pos
     elseif c == "~" and sub(str, pos + 1, pos + 1) == "=" then return tokens.NE, pos + 1
 
     -- Single character tokens
     elseif c == "," then return tokens.COMMA, pos
     elseif c == ";" then return tokens.SEMICOLON, pos
-    elseif c == ":" then return tokens.COLON, pos
     elseif c == "(" then return tokens.OPAREN, pos
     elseif c == ")" then return tokens.CPAREN, pos
     elseif c == "]" then return tokens.CSQUARE, pos
@@ -325,6 +327,9 @@ local function lex_token(context, str, pos)
             elseif contents == "!=" or contents == "<>" then
                 context.report(errors.wrong_ne, pos, end_pos)
                 return tokens.NE, end_pos
+            elseif contents == "!" then
+                context.report(errors.wrong_not, pos, end_pos)
+                return tokens.NOT, end_pos
             end
         end
 

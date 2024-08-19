@@ -4,6 +4,7 @@
 
 package dan200.computercraft.shared.peripheral.speaker;
 
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import dan200.computercraft.api.lua.ILuaContext;
 import dan200.computercraft.api.lua.LuaException;
 import dan200.computercraft.api.lua.LuaFunction;
@@ -16,17 +17,19 @@ import dan200.computercraft.shared.network.client.SpeakerAudioClientMessage;
 import dan200.computercraft.shared.network.client.SpeakerMoveClientMessage;
 import dan200.computercraft.shared.network.client.SpeakerPlayClientMessage;
 import dan200.computercraft.shared.network.client.SpeakerStopClientMessage;
+import dan200.computercraft.shared.network.server.ServerNetworking;
 import dan200.computercraft.shared.platform.PlatformHelper;
 import dan200.computercraft.shared.util.PauseAwareTimer;
-import net.minecraft.ResourceLocationException;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
+import net.minecraft.world.item.RecordItem;
 import net.minecraft.world.level.block.state.properties.NoteBlockInstrument;
 
 import javax.annotation.Nullable;
@@ -57,7 +60,7 @@ public abstract class SpeakerPeripheral implements IPeripheral {
     public static final int SAMPLE_RATE = 48000;
 
     private final UUID source = UUID.randomUUID();
-    private final Set<IComputerAccess> computers = new HashSet<>();
+    private final @GuardedBy("computers") Set<IComputerAccess> computers = new HashSet<>();
 
     private long clock = 0;
     private long lastPositionTime;
@@ -115,14 +118,14 @@ public abstract class SpeakerPeripheral implements IPeripheral {
         // Stop the speaker and nuke the position, so we don't update it again.
         if (shouldStop && lastPosition != null) {
             lastPosition = null;
-            PlatformHelper.get().sendToAllPlayers(new SpeakerStopClientMessage(getSource()), server);
+            ServerNetworking.sendToAllPlayers(new SpeakerStopClientMessage(getSource()), server);
             return;
         }
 
         var now = PauseAwareTimer.getTime();
         if (sound != null) {
             lastPlayTime = clock;
-            PlatformHelper.get().sendToAllAround(
+            ServerNetworking.sendToAllAround(
                 new SpeakerPlayClientMessage(getSource(), position, sound.sound, sound.volume, sound.pitch),
                 (ServerLevel) level, pos, sound.volume * 16
             );
@@ -130,7 +133,7 @@ public abstract class SpeakerPeripheral implements IPeripheral {
         } else if (dfpwmState != null && dfpwmState.shouldSendPending(now)) {
             // If clients need to receive another batch of audio, send it and then notify computers our internal buffer is
             // free again.
-            PlatformHelper.get().sendToAllTracking(
+            ServerNetworking.sendToAllTracking(
                 new SpeakerAudioClientMessage(getSource(), position, dfpwmState.getVolume(), dfpwmState.pullPending(now)),
                 level.getChunkAt(BlockPos.containing(pos))
             );
@@ -149,7 +152,7 @@ public abstract class SpeakerPeripheral implements IPeripheral {
         // in the last second.
         if (lastPosition != null && (clock - lastPositionTime) >= 20 && !lastPosition.withinDistance(position, 0.1)) {
             // TODO: What to do when entities move away? How do we notify people left behind that they're gone.
-            PlatformHelper.get().sendToAllTracking(
+            ServerNetworking.sendToAllTracking(
                 new SpeakerMoveClientMessage(getSource(), position),
                 level.getChunkAt(BlockPos.containing(pos))
             );
@@ -187,7 +190,7 @@ public abstract class SpeakerPeripheral implements IPeripheral {
      * {@literal false}.
      * <p>
      * ### Valid instruments
-     * The speaker supports [all of Minecraft's noteblock instruments](https://minecraft.fandom.com/wiki/Note_Block#Instruments).
+     * The speaker supports [all of Minecraft's noteblock instruments](https://minecraft.wiki/w/Note_Block#Instruments).
      * These are:
      * <p>
      * {@code "harp"}, {@code "basedrum"}, {@code "snare"}, {@code "hat"}, {@code "bass"}, {@code "flute"},
@@ -227,7 +230,7 @@ public abstract class SpeakerPeripheral implements IPeripheral {
     /**
      * Plays a Minecraft sound through the speaker.
      * <p>
-     * This takes the [name of a Minecraft sound](https://minecraft.fandom.com/wiki/Sounds.json), such as
+     * This takes the [name of a Minecraft sound](https://minecraft.wiki/w/Sounds.json), such as
      * {@code "minecraft:block.note_block.harp"}, as well as an optional volume and pitch.
      * <p>
      * Only one sound can be played at once. This function will return {@literal false} if another sound was started
@@ -251,15 +254,15 @@ public abstract class SpeakerPeripheral implements IPeripheral {
         var volume = (float) clampVolume(checkFinite(1, volumeA.orElse(1.0)));
         var pitch = (float) checkFinite(2, pitchA.orElse(1.0));
 
-        ResourceLocation identifier;
-        try {
-            identifier = new ResourceLocation(name);
-        } catch (ResourceLocationException e) {
-            throw new LuaException("Malformed sound name '" + name + "' ");
-        }
+        var identifier = ResourceLocation.tryParse(name);
+        if (identifier == null) throw new LuaException("Malformed sound name '" + name + "' ");
+
+        // Prevent playing music discs.
+        var soundEvent = PlatformHelper.get().tryGetRegistryObject(Registries.SOUND_EVENT, identifier);
+        if (soundEvent != null && RecordItem.getBySound(soundEvent) != null) return false;
 
         synchronized (lock) {
-            if (dfpwmState != null && dfpwmState.isPlaying()) return false;
+            if (pendingSound != null || (dfpwmState != null && dfpwmState.isPlaying())) return false;
             dfpwmState = null;
             pendingSound = new PendingSound<>(identifier, volume, pitch);
             return true;
@@ -270,17 +273,18 @@ public abstract class SpeakerPeripheral implements IPeripheral {
      * Attempt to stream some audio data to the speaker.
      * <p>
      * This accepts a list of audio samples as amplitudes between -128 and 127. These are stored in an internal buffer
-     * and played back at 48kHz. If this buffer is full, this function will return {@literal false}. You should wait for
-     * a @{speaker_audio_empty} event before trying again.
+     * and played back at 48kHz. If this buffer is full, this function will return {@literal false}. Programs should
+     * wait for a [`speaker_audio_empty`] event before trying to play audio again.
      * <p>
-     * :::note
      * The speaker only buffers a single call to {@link #playAudio} at once. This means if you try to play a small
      * number of samples, you'll have a lot of stutter. You should try to play as many samples in one call as possible
      * (up to 128×1024), as this reduces the chances of audio stuttering or halting, especially when the server or
      * computer is lagging.
-     * :::
      * <p>
-     * {@literal @}{speaker_audio} provides a more complete guide to using speakers
+     * While the speaker accepts 8-bit PCM audio, the audio stream is re-encoded before being played. This means that
+     * the supplied samples may not be played out exactly.
+     * <p>
+     * [`speaker_audio`] provides a more complete guide to using speakers.
      *
      * @param context The Lua context.
      * @param audio   The audio data to play.
@@ -291,7 +295,7 @@ public abstract class SpeakerPeripheral implements IPeripheral {
      * @cc.tparam [opt] number volume The volume to play this audio at. If not given, defaults to the previous volume
      * given to {@link #playAudio}.
      * @cc.since 1.100
-     * @cc.usage Read an audio file, decode it using @{cc.audio.dfpwm}, and play it using the speaker.
+     * @cc.usage Read an audio file, decode it using [`cc.audio.dfpwm`], and play it using the speaker.
      *
      * <pre data-peripheral="speaker">{@code
      * local dfpwm = require("cc.audio.dfpwm")

@@ -27,7 +27,6 @@ import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.entity.SignText;
 import net.minecraft.world.level.block.state.BlockState;
@@ -75,7 +74,7 @@ public class TurtlePlaceCommand implements TurtleCommand {
         }
     }
 
-    public static boolean deploy(
+    private static boolean deploy(
         ItemStack stack, ITurtleAccess turtle, TurtlePlayer turtlePlayer, Direction direction,
         @Nullable Object[] extraArguments, @Nullable ErrorMessage outErrorMessage
     ) {
@@ -141,6 +140,22 @@ public class TurtlePlaceCommand implements TurtleCommand {
         return true;
     }
 
+    /**
+     * Calculate where a turtle would interact with a block.
+     *
+     * @param position The position of the block.
+     * @param side     The side the turtle is clicking on.
+     * @return The hit result.
+     */
+    public static BlockHitResult getHitResult(BlockPos position, Direction side) {
+        var hitX = 0.5 + side.getStepX() * 0.5;
+        var hitY = 0.5 + side.getStepY() * 0.5;
+        var hitZ = 0.5 + side.getStepZ() * 0.5;
+        if (Math.abs(hitY - 0.5) < 0.01) hitY = 0.45;
+
+        return new BlockHitResult(new Vec3(position.getX() + hitX, position.getY() + hitY, position.getZ() + hitZ), side, position, false);
+    }
+
     private static boolean deployOnBlock(
         ItemStack stack, ITurtleAccess turtle, TurtlePlayer turtlePlayer, BlockPos position, Direction side,
         @Nullable Object[] extraArguments, boolean adjacent, @Nullable ErrorMessage outErrorMessage
@@ -150,14 +165,8 @@ public class TurtlePlaceCommand implements TurtleCommand {
         var playerPosition = position.relative(side);
         turtlePlayer.setPosition(turtle, playerPosition, playerDir);
 
-        // Calculate where the turtle would hit the block
-        var hitX = 0.5f + side.getStepX() * 0.5f;
-        var hitY = 0.5f + side.getStepY() * 0.5f;
-        var hitZ = 0.5f + side.getStepZ() * 0.5f;
-        if (Math.abs(hitY - 0.5f) < 0.01f) hitY = 0.45f;
-
         // Check if there's something suitable to place onto
-        var hit = new BlockHitResult(new Vec3(position.getX() + hitX, position.getY() + hitY, position.getZ() + hitZ), side, position, false);
+        var hit = getHitResult(position, side);
         var context = new UseOnContext(turtlePlayer.player(), InteractionHand.MAIN_HAND, hit);
         if (!canDeployOnBlock(new BlockPlaceContext(context), turtle, turtlePlayer, position, side, adjacent, outErrorMessage)) {
             return false;
@@ -176,7 +185,7 @@ public class TurtlePlaceCommand implements TurtleCommand {
                 tile = world.getBlockEntity(position.relative(side));
             }
 
-            if (tile instanceof SignBlockEntity) setSignText(world, tile, message);
+            if (tile instanceof SignBlockEntity sign) setSignText(world, sign, message);
         }
 
         return placed;
@@ -210,26 +219,23 @@ public class TurtlePlaceCommand implements TurtleCommand {
         return InteractionResult.PASS;
     }
 
-    private static void setSignText(Level world, BlockEntity tile, String message) {
-        var signTile = (SignBlockEntity) tile;
-        var split = Splitter.on('\n').splitToList(message);
-        var firstLine = split.size() <= 2 ? 1 : 0;
+    private static void setSignText(Level world, SignBlockEntity sign, String message) {
+        var lines = Splitter.on('\n').splitToList(message);
+        var firstLine = lines.size() <= 2 ? 1 : 0;
 
         var signText = new SignText();
-        for (var i = 0; i < 4; i++) {
-            if (i >= firstLine && i < firstLine + split.size()) {
-                var line = split.get(i - firstLine);
-                signText.setMessage(i, line.length() > 15
-                    ? Component.literal(line.substring(0, 15))
-                    : Component.literal(line)
-                );
-            }
+        for (int i = 0, len = Math.min(lines.size(), 4); i < len; i++) {
+            var line = lines.get(i);
+            signText = signText.setMessage(i + firstLine, line.length() > 15
+                ? Component.literal(line.substring(0, 15))
+                : Component.literal(line)
+            );
         }
-        signTile.setText(signText, true);
-        world.sendBlockUpdated(tile.getBlockPos(), tile.getBlockState(), tile.getBlockState(), Block.UPDATE_ALL);
+        sign.setText(signText, true);
+        world.sendBlockUpdated(sign.getBlockPos(), sign.getBlockState(), sign.getBlockState(), Block.UPDATE_ALL);
     }
 
-    private static class ErrorMessage {
+    private static final class ErrorMessage {
         @Nullable
         String message;
     }

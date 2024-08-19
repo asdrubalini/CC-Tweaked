@@ -12,6 +12,7 @@ import dan200.computercraft.shared.computer.core.ComputerState;
 import dan200.computercraft.shared.computer.core.ServerComputer;
 import dan200.computercraft.shared.computer.inventory.ComputerMenuWithoutInventory;
 import dan200.computercraft.shared.config.Config;
+import dan200.computercraft.shared.util.ComponentMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -32,11 +33,10 @@ public class ComputerBlockEntity extends AbstractComputerBlockEntity {
 
     @Override
     protected ServerComputer createComputer(int id) {
-        var family = getFamily();
         return new ServerComputer(
             (ServerLevel) getLevel(), getBlockPos(), id, label,
-            family, Config.computerTermWidth,
-            Config.computerTermHeight
+            getFamily(), Config.computerTermWidth, Config.computerTermHeight,
+            ComponentMap.empty()
         );
     }
 
@@ -53,7 +53,7 @@ public class ComputerBlockEntity extends AbstractComputerBlockEntity {
     protected void updateBlockState(ComputerState newState) {
         var existing = getBlockState();
         if (existing.getValue(ComputerBlock.STATE) != newState) {
-            getLevel().setBlock(getBlockPos(), existing.setValue(ComputerBlock.STATE, newState), 3);
+            getLevel().setBlock(getBlockPos(), existing.setValue(ComputerBlock.STATE, newState), ComputerBlock.UPDATE_CLIENTS);
         }
     }
 
@@ -69,7 +69,7 @@ public class ComputerBlockEntity extends AbstractComputerBlockEntity {
     @Nullable
     @Override
     public AbstractContainerMenu createMenu(int id, Inventory inventory, Player player) {
-        return new ComputerMenuWithoutInventory(ModRegistry.Menus.COMPUTER.get(), id, inventory, this::isUsableByPlayer, createServerComputer(), getFamily());
+        return new ComputerMenuWithoutInventory(ModRegistry.Menus.COMPUTER.get(), id, inventory, this::isUsableByPlayer, createServerComputer());
     }
 
     public IPeripheral peripheral() {

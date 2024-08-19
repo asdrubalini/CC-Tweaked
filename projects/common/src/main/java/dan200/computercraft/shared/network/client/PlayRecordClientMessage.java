@@ -4,15 +4,15 @@
 
 package dan200.computercraft.shared.network.client;
 
+import dan200.computercraft.shared.network.MessageType;
 import dan200.computercraft.shared.network.NetworkMessage;
+import dan200.computercraft.shared.network.NetworkMessages;
 import dan200.computercraft.shared.peripheral.diskdrive.DiskDriveBlockEntity;
-import dan200.computercraft.shared.platform.RegistryWrappers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.sounds.SoundEvent;
 
 import javax.annotation.Nullable;
-import java.util.function.BiConsumer;
 
 /**
  * Starts or stops a record on the client, depending on if {@link #soundEvent} is {@code null}.
@@ -40,15 +40,15 @@ public class PlayRecordClientMessage implements NetworkMessage<ClientNetworkCont
 
     public PlayRecordClientMessage(FriendlyByteBuf buf) {
         pos = buf.readBlockPos();
-        soundEvent = buf.readBoolean() ? RegistryWrappers.readKey(buf, RegistryWrappers.SOUND_EVENTS) : null;
-        name = buf.readBoolean() ? buf.readUtf(Short.MAX_VALUE) : null;
+        soundEvent = buf.readNullable(SoundEvent::readFromNetwork);
+        name = buf.readNullable(FriendlyByteBuf::readUtf);
     }
 
     @Override
-    public void toBytes(FriendlyByteBuf buf) {
+    public void write(FriendlyByteBuf buf) {
         buf.writeBlockPos(pos);
-        writeOptional(buf, soundEvent, (b, e) -> RegistryWrappers.writeKey(b, RegistryWrappers.SOUND_EVENTS, e));
-        writeOptional(buf, name, FriendlyByteBuf::writeUtf);
+        buf.writeNullable(soundEvent, (b, e) -> e.writeToNetwork(b));
+        buf.writeNullable(name, FriendlyByteBuf::writeUtf);
     }
 
     @Override
@@ -56,12 +56,8 @@ public class PlayRecordClientMessage implements NetworkMessage<ClientNetworkCont
         context.handlePlayRecord(pos, soundEvent, name);
     }
 
-    private static <T> void writeOptional(FriendlyByteBuf out, @Nullable T object, BiConsumer<FriendlyByteBuf, T> write) {
-        if (object == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            write.accept(out, object);
-        }
+    @Override
+    public MessageType<PlayRecordClientMessage> type() {
+        return NetworkMessages.PLAY_RECORD;
     }
 }

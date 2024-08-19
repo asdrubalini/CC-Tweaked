@@ -10,9 +10,11 @@ import org.gradle.api.GradleException
 import org.gradle.api.NamedDomainObjectProvider
 import org.gradle.api.Project
 import org.gradle.api.Task
+import org.gradle.api.artifacts.Dependency
 import org.gradle.api.attributes.TestSuiteType
 import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Provider
 import org.gradle.api.provider.SetProperty
 import org.gradle.api.reporting.ReportingExtension
@@ -20,7 +22,6 @@ import org.gradle.api.tasks.SourceSet
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.javadoc.Javadoc
-import org.gradle.configurationcache.extensions.capitalized
 import org.gradle.language.base.plugins.LifecycleBasePlugin
 import org.gradle.language.jvm.tasks.ProcessResources
 import org.gradle.process.JavaForkOptions
@@ -33,7 +34,6 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.File
 import java.io.IOException
 import java.net.URI
-import java.net.URL
 import java.util.regex.Pattern
 
 abstract class CCTweakedExtension(
@@ -73,11 +73,17 @@ abstract class CCTweakedExtension(
      */
     val sourceDirectories: SetProperty<SourceSetReference> = project.objects.setProperty(SourceSetReference::class.java)
 
+    /**
+     * Dependencies excluded from published artifacts.
+     */
+    private val excludedDeps: ListProperty<Dependency> = project.objects.listProperty(Dependency::class.java)
+
     /** All source sets referenced by this project. */
     val sourceSets = sourceDirectories.map { x -> x.map { it.sourceSet } }
 
     init {
         sourceDirectories.finalizeValueOnRead()
+        excludedDeps.finalizeValueOnRead()
         project.afterEvaluate { sourceDirectories.disallowChanges() }
     }
 
@@ -173,8 +179,8 @@ abstract class CCTweakedExtension(
     }
 
     fun <T> jacoco(task: NamedDomainObjectProvider<T>) where T : Task, T : JavaForkOptions {
-        val classDump = project.buildDir.resolve("jacocoClassDump/${task.name}")
-        val reportTaskName = "jacoco${task.name.capitalized()}Report"
+        val classDump = project.layout.buildDirectory.dir("jacocoClassDump/${task.name}")
+        val reportTaskName = "jacoco${task.name.capitalise()}Report"
 
         val jacoco = project.extensions.getByType(JacocoPluginExtension::class.java)
         task.configure {
@@ -185,7 +191,7 @@ abstract class CCTweakedExtension(
             jacoco.applyTo(this)
             extensions.configure(JacocoTaskExtension::class.java) {
                 includes = listOf("dan200.computercraft.*")
-                classDumpDir = classDump
+                classDumpDir = classDump.get().asFile
 
                 // Older versions of modlauncher don't include a protection domain (and thus no code
                 // source). Jacoco skips such classes by default, so we need to explicitly include them.
@@ -218,12 +224,12 @@ abstract class CCTweakedExtension(
      * where possible.
      */
     fun downloadFile(label: String, url: String): File {
-        val url = URL(url)
-        val path = File(url.path)
+        val uri = URI(url)
+        val path = File(uri.path)
 
         project.repositories.ivy {
             name = label
-            setUrl(URI(url.protocol, url.userInfo, url.host, url.port, path.parent, null, null))
+            setUrl(URI(uri.scheme, uri.userInfo, uri.host, uri.port, path.parent, null, null))
             patternLayout {
                 artifact("[artifact].[ext]")
             }
@@ -244,6 +250,20 @@ abstract class CCTweakedExtension(
                 ),
             ),
         ).resolve().single()
+    }
+
+    /**
+     * Exclude a dependency from being published in Maven.
+     */
+    fun exclude(dep: Dependency) {
+        excludedDeps.add(dep)
+    }
+
+    /**
+     * Configure a [MavenDependencySpec].
+     */
+    fun configureExcludes(spec: MavenDependencySpec) {
+        for (dep in excludedDeps.get()) spec.exclude(dep)
     }
 
     companion object {

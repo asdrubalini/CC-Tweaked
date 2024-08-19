@@ -11,17 +11,23 @@ import dan200.computercraft.core.apis.TermAPI
 import dan200.computercraft.core.computer.ComputerSide
 import dan200.computercraft.gametest.api.*
 import dan200.computercraft.shared.ModRegistry
+import dan200.computercraft.test.core.assertArrayEquals
 import dan200.computercraft.test.core.computer.getApi
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.gametest.framework.GameTest
 import net.minecraft.gametest.framework.GameTestHelper
-import net.minecraft.world.InteractionHand
+import net.minecraft.world.item.ItemStack
+import net.minecraft.world.item.Items
+import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.LeverBlock
 import net.minecraft.world.level.block.RedstoneLampBlock
+import net.minecraft.world.phys.Vec3
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.lwjgl.glfw.GLFW
+import kotlin.time.Duration.Companion.milliseconds
 
 class Computer_Test {
     /**
@@ -72,6 +78,24 @@ class Computer_Test {
     }
 
     /**
+     * Check computers pick up propagated redstone to surrounding blocks.
+     *
+     * @see [#1520](https://github.com/cc-tweaked/CC-Tweaked/issues/1520)
+     */
+    @GameTest
+    fun Self_output_update(context: GameTestHelper) = context.sequence {
+        thenOnComputer {
+            getApi<RedstoneAPI>().setOutput(ComputerSide.BACK, true)
+            sleep(100.milliseconds)
+            assertEquals(true, getApi<RedstoneAPI>().getInput(ComputerSide.BACK), "Input should be on")
+
+            getApi<RedstoneAPI>().setOutput(ComputerSide.BACK, false)
+            sleep(100.milliseconds)
+            assertEquals(false, getApi<RedstoneAPI>().getInput(ComputerSide.BACK), "Input should be off")
+        }
+    }
+
+    /**
      * Check computers and turtles expose peripherals.
      */
     @GameTest
@@ -79,6 +103,30 @@ class Computer_Test {
         thenExecute {
             context.assertPeripheral(BlockPos(3, 2, 2), type = "computer")
             context.assertPeripheral(BlockPos(1, 2, 2), type = "turtle")
+        }
+    }
+
+    /**
+     * Check chest peripherals are reattached with a new size.
+     */
+    @GameTest
+    fun Chest_resizes_on_change(context: GameTestHelper) = context.sequence {
+        thenOnComputer { callPeripheral("right", "size").assertArrayEquals(27) }
+        thenExecute { context.placeItemAt(ItemStack(Items.CHEST), BlockPos(2, 2, 2), Direction.WEST) }
+        thenIdle(1)
+        thenOnComputer { callPeripheral("right", "size").assertArrayEquals(54) }
+    }
+
+    /**
+     * Tests a computer item is dropped on explosion.
+     */
+    @GameTest
+    fun Drops_on_explosion(context: GameTestHelper) = context.sequence {
+        thenExecute {
+            val explosionPos = Vec3.atCenterOf(context.absolutePos(BlockPos(2, 2, 2)))
+            context.level.explode(null, explosionPos.x, explosionPos.y, explosionPos.z, 2.0f, Level.ExplosionInteraction.TNT)
+
+            context.assertItemEntityCountIs(ModRegistry.Items.COMPUTER_NORMAL.get(), 1)
         }
     }
 
@@ -106,8 +154,7 @@ class Computer_Test {
         // Teleport the player to the computer and then open it.
         thenExecute {
             context.positionAt(BlockPos(2, 2, 1))
-            val computer = context.getBlockEntity(BlockPos(2, 2, 2), ModRegistry.BlockEntities.COMPUTER_ADVANCED.get())
-            computer.use(context.level.randomPlayer!!, InteractionHand.MAIN_HAND)
+            context.useBlock(BlockPos(2, 2, 2), context.level.randomPlayer!!)
         }
         // Assert the terminal is synced to the client.
         thenIdle(2)

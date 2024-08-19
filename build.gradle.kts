@@ -2,13 +2,18 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-import org.jetbrains.gradle.ext.compiler
-import org.jetbrains.gradle.ext.settings
+import cc.tweaked.gradle.JUnitExt
+import net.fabricmc.loom.api.LoomGradleExtensionAPI
+import net.fabricmc.loom.util.gradle.SourceSetHelper
+import org.jetbrains.gradle.ext.*
+import org.jetbrains.gradle.ext.Application
 
 plugins {
     publishing
     alias(libs.plugins.taskTree)
     alias(libs.plugins.githubRelease)
+    alias(libs.plugins.gradleVersions)
+    alias(libs.plugins.versionCatalogUpdate)
     id("org.jetbrains.gradle.plugin.idea-ext")
     id("cc-tweaked")
 }
@@ -38,6 +43,63 @@ githubRelease {
 
 tasks.publish { dependsOn(tasks.githubRelease) }
 
+idea.project.settings.runConfigurations {
+    register<JUnitExt>("Core Tests") {
+        vmParameters = "-ea"
+        moduleName = "${idea.project.name}.core.test"
+        packageName = ""
+    }
+
+    register<JUnitExt>("CraftOS Tests") {
+        vmParameters = "-ea"
+        moduleName = "${idea.project.name}.core.test"
+        className = "dan200.computercraft.core.ComputerTestDelegate"
+    }
+
+    register<JUnitExt>("CraftOS Tests (Fast)") {
+        vmParameters = "-ea -Dcc.skip_keywords=slow"
+        moduleName = "${idea.project.name}.core.test"
+        className = "dan200.computercraft.core.ComputerTestDelegate"
+    }
+
+    register<JUnitExt>("Common Tests") {
+        vmParameters = "-ea"
+        moduleName = "${idea.project.name}.common.test"
+        packageName = ""
+    }
+
+    register<JUnitExt>("Fabric Tests") {
+        val fabricProject = evaluationDependsOn(":fabric")
+        val classPathGroup = fabricProject.extensions.getByType<LoomGradleExtensionAPI>().mods
+            .joinToString(File.pathSeparator + File.pathSeparator) { modSettings ->
+                SourceSetHelper.getClasspath(modSettings, project).joinToString(File.pathSeparator) { it.absolutePath }
+            }
+
+        vmParameters = "-ea -Dfabric.classPathGroups=$classPathGroup"
+        moduleName = "${idea.project.name}.fabric.test"
+        packageName = ""
+    }
+
+    register<JUnitExt>("Forge Tests") {
+        vmParameters = "-ea"
+        moduleName = "${idea.project.name}.forge.test"
+        packageName = ""
+    }
+
+    register<Application>("Standalone") {
+        moduleName = "${idea.project.name}.standalone.main"
+        mainClass = "cc.tweaked.standalone.Main"
+        programParameters = "--resources=projects/core/src/main/resources --term=80x30 --allow-local-domains"
+    }
+}
+
+// Build with the IntelliJ, rather than through Gradle. This may require setting the "Compiler Output" option in
+// "Project Structure".
+idea.project.settings.delegateActions {
+    delegateBuildRunToGradle = false
+    testRunner = ActionDelegationConfig.TestRunner.PLATFORM
+}
+
 idea.project.settings.compiler.javac {
     // We want ErrorProne to be present when compiling via IntelliJ, as it offers some helpful warnings
     // and errors. Loop through our source sets and find the appropriate flags.
@@ -53,4 +115,10 @@ idea.project.settings.compiler.javac {
             }
         }
         .toMap()
+}
+
+versionCatalogUpdate {
+    sortByKey.set(false)
+    pin { versions.addAll("fastutil", "guava", "netty", "slf4j") }
+    keep { keepUnusedLibraries.set(true) }
 }

@@ -9,32 +9,6 @@ generate for each one. This is _not_ a complete collection of all possible
 errors, but is a useful guide for where we might be providing terrible messages.
 
 ```lua
-break while
--- Line 1: unexpected symbol near <eof> (program)
-```
-
-```txt
-Unexpected while. Expected a statement.
-   |
- 1 | break while
-   |       ^^^^^
-```
-
-
-```lua
-do end true
--- Line 1: unexpected symbol near 'true' (program)
-```
-
-```txt
-Unexpected true. Expected a statement.
-   |
- 1 | do end true
-   |        ^^^^
-```
-
-
-```lua
 do until
 -- Line 1: 'end' expected near 'until' (program)
 ```
@@ -60,6 +34,35 @@ Unexpected true.
    |
  1 | ... true
    |     ^^^^
+```
+
+
+```lua
+:: xyz while
+-- Line 1: '::' expected near 'while' (program)
+```
+
+```txt
+Unexpected while.
+   |
+ 1 | :: xyz while
+   | ^^ Label was started here.
+   |
+ 1 | :: xyz while
+   |        ^^^^^ Tip: Try adding :: here.
+```
+
+
+```lua
+:: while
+-- Line 1: <name> expected near 'while' (program)
+```
+
+```txt
+Unexpected while.
+   |
+ 1 | :: while
+   |    ^^^^^
 ```
 
 
@@ -344,7 +347,7 @@ function ( xyz , while
 ```
 
 ```txt
-Unexpected while.
+Unexpected while. Expected a variable name.
    |
  1 | function ( xyz , while
    |                  ^^^^^
@@ -480,11 +483,11 @@ xyz , xyz while
 ```
 
 ```txt
-Unexpected symbol after name.
+Unexpected while after name.
    |
  1 | xyz , xyz while
    |           ^
-Did you mean to assign this or call it as a function?
+Did you mean to assign this?
 ```
 
 
@@ -828,7 +831,7 @@ xyz while
 ```
 
 ```txt
-Unexpected symbol after name.
+Unexpected while after name.
    |
  1 | xyz while
    |     ^
@@ -846,6 +849,20 @@ Unexpected while.
    |
  1 | xyz while
    |     ^^^^^
+```
+
+
+```lua
+xyz while
+-- Line 1: syntax error near 'while' (program)
+```
+
+```txt
+Unexpected while after name.
+   |
+ 1 | xyz while
+   |     ^
+Did you mean to assign this or call it as a function?
 ```
 
 
@@ -1039,7 +1056,7 @@ local while
 ```
 
 ```txt
-Unexpected while.
+Unexpected while. Expected a variable name.
    |
  1 | local while
    |       ^^^^^
@@ -1056,22 +1073,6 @@ Unexpected while. Expected an expression.
    |
  1 | not while
    |     ^^^^^
-```
-
-
-```lua {repl_exprs}
-{ xyz , while
--- Line 1: unexpected symbol near 'while' (repl_exprs)
-```
-
-```txt
-Unexpected while. Are you missing a closing bracket?
-   |
- 1 | { xyz , while
-   | ^ Brackets were opened here.
-   |
- 1 | { xyz , while
-   |         ^^^^^ Unexpected while here.
 ```
 
 
@@ -1101,6 +1102,22 @@ Unexpected while. Expected an expression.
    |
  1 | { xyz = while
    |         ^^^^^
+```
+
+
+```lua {repl_exprs}
+{ xyz ; while
+-- Line 1: unexpected symbol near 'while' (repl_exprs)
+```
+
+```txt
+Unexpected while. Are you missing a closing bracket?
+   |
+ 1 | { xyz ; while
+   | ^ Brackets were opened here.
+   |
+ 1 | { xyz ; while
+   |         ^^^^^ Unexpected while here.
 ```
 
 
@@ -1255,7 +1272,7 @@ repeat --[[eof]]
 ```
 
 ```txt
-Unexpected end of file. Expected a statement.
+Unexpected end of file. Expected a variable name.
    |
  2 | -- Line 1: 'until' expected near <eof> (program)
    |                                                 ^
@@ -1372,7 +1389,7 @@ while
 ```
 
 ```txt
-Unexpected while.
+Unexpected while. Expected an expression.
    |
  1 | while
    | ^^^^^

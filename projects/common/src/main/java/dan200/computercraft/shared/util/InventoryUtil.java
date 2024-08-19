@@ -8,7 +8,13 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -16,6 +22,42 @@ import javax.annotation.Nullable;
 
 public final class InventoryUtil {
     private InventoryUtil() {
+    }
+
+    /**
+     * Get the inventory slot for a given hand.
+     *
+     * @param player The player to get the slot from.
+     * @param hand   The hand to get.
+     * @return The current slot.
+     */
+    public static int getHandSlot(Player player, InteractionHand hand) {
+        return switch (hand) {
+            case MAIN_HAND -> player.getInventory().selected;
+            case OFF_HAND -> Inventory.SLOT_OFFHAND;
+        };
+    }
+
+    /**
+     * Map a slot inside a player's compartment to a slot in the full player's inventory.
+     * <p>
+     * {@link Inventory#tick()} passes in a slot to {@link Item#inventoryTick(ItemStack, Level, Entity, int, boolean)}.
+     * However, this slot corresponds to the index within the current compartment (items, armour, offhand) and not
+     * the actual slot.
+     * <p>
+     * This method searches the relevant compartments (inventory and offhand, skipping armour) for the stack, returning
+     * its slot if found.
+     *
+     * @param player The player holding the item.
+     * @param slot   The slot inside the compartment.
+     * @param stack  The stack being ticked.
+     * @return The inventory slot, or {@code -1} if the item could not be found in the inventory.
+     */
+    public static int getInventorySlotFromCompartment(Player player, int slot, ItemStack stack) {
+        if (stack.isEmpty()) throw new IllegalArgumentException("Cannot search for empty stack");
+        if (player.getInventory().getItem(slot) == stack) return slot;
+        if (player.getInventory().getItem(Inventory.SLOT_OFFHAND) == stack) return Inventory.SLOT_OFFHAND;
+        return -1;
     }
 
     public static @Nullable Container getEntityContainer(ServerLevel level, BlockPos pos, Direction side) {

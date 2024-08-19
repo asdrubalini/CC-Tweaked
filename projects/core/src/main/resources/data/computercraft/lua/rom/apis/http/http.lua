@@ -66,15 +66,14 @@ end
 @tparam string url   The url to request
 @tparam[opt] { [string] = string } headers Additional headers to send as part
 of this request.
-@tparam[opt] boolean binary Whether to make a binary HTTP request. If true,
-the body will not be UTF-8 encoded, and the received response will not be
-decoded.
+@tparam[opt=false] boolean binary Whether the [response handle][`fs.ReadHandle`]
+should be opened in binary mode.
 
 @tparam[2] {
   url = string, headers? = { [string] = string },
   binary? = boolean, method? = string, redirect? = boolean,
   timeout? = number,
-} request Options for the request. See @{http.request} for details on how
+} request Options for the request. See [`http.request`] for details on how
 these options behave.
 
 @treturn Response The resulting http response, which can be read from.
@@ -89,6 +88,8 @@ error or connection timeout.
 @changed 1.80pr1.6 Added support for table argument.
 @changed 1.86.0 Added PATCH and TRACE methods.
 @changed 1.105.0 Added support for custom timeouts.
+@changed 1.109.0 The returned response now reads the body as raw bytes, rather
+                 than decoding from UTF-8.
 
 @usage Make a request to [example.tweaked.cc](https://example.tweaked.cc),
 and print the returned page.
@@ -118,15 +119,14 @@ end
 @tparam string body  The body of the POST request.
 @tparam[opt] { [string] = string } headers Additional headers to send as part
 of this request.
-@tparam[opt] boolean binary Whether to make a binary HTTP request. If true,
-the body will not be UTF-8 encoded, and the received response will not be
-decoded.
+@tparam[opt=false] boolean binary Whether the [response handle][`fs.ReadHandle`]
+should be opened in binary mode.
 
 @tparam[2] {
   url = string, body? = string, headers? = { [string] = string },
   binary? = boolean, method? = string, redirect? = boolean,
   timeout? = number,
-} request Options for the request. See @{http.request} for details on how
+} request Options for the request. See [`http.request`] for details on how
 these options behave.
 
 @treturn Response The resulting http response, which can be read from.
@@ -142,6 +142,8 @@ error or connection timeout.
 @changed 1.80pr1.6 Added support for table argument.
 @changed 1.86.0 Added PATCH and TRACE methods.
 @changed 1.105.0 Added support for custom timeouts.
+@changed 1.109.0 The returned response now reads the body as raw bytes, rather
+                 than decoding from UTF-8.
 ]]
 function post(_url, _post, _headers, _binary)
     if type(_url) == "table" then
@@ -158,7 +160,7 @@ end
 
 --[[- Asynchronously make a HTTP request to the given url.
 
-This returns immediately, a @{http_success} or @{http_failure} will be queued
+This returns immediately, a [`http_success`] or [`http_failure`] will be queued
 once the request has completed.
 
 @tparam      string url   The url to request
@@ -166,9 +168,8 @@ once the request has completed.
 request. If specified, a `POST` request will be made instead.
 @tparam[opt] { [string] = string } headers Additional headers to send as part
 of this request.
-@tparam[opt] boolean binary Whether to make a binary HTTP request. If true,
-the body will not be UTF-8 encoded, and the received response will not be
-decoded.
+@tparam[opt=false] boolean binary Whether the [response handle][`fs.ReadHandle`]
+should be opened in binary mode.
 
 @tparam[2] {
   url = string, body? = string, headers? = { [string] = string },
@@ -194,6 +195,8 @@ from above are passed in as fields instead (for instance,
 @changed 1.80pr1.6 Added support for table argument.
 @changed 1.86.0 Added PATCH and TRACE methods.
 @changed 1.105.0 Added support for custom timeouts.
+@changed 1.109.0 The returned response now reads the body as raw bytes, rather
+                 than decoding from UTF-8.
 ]]
 function request(_url, _post, _headers, _binary)
     local url
@@ -221,7 +224,7 @@ local nativeCheckURL = native.checkURL
 
 --[[- Asynchronously determine whether a URL can be requested.
 
-If this returns `true`, one should also listen for @{http_check} which will
+If this returns `true`, one should also listen for [`http_check`] which will
 container further information about whether the URL is allowed or not.
 
 @tparam string url The URL to check.
@@ -237,11 +240,11 @@ checkURLAsync = nativeCheckURL
 
 --[[- Determine whether a URL can be requested.
 
-If this returns `true`, one should also listen for @{http_check} which will
+If this returns `true`, one should also listen for [`http_check`] which will
 container further information about whether the URL is allowed or not.
 
 @tparam string url The URL to check.
-@treturn true When this url is valid and can be requested via @{http.request}.
+@treturn true When this url is valid and can be requested via [`http.request`].
 @treturn[2] false When this url is invalid.
 @treturn string A reason why this URL is not valid (for instance, if it is
 malformed, or blocked).
@@ -280,7 +283,7 @@ end
 
 --[[- Asynchronously open a websocket.
 
-This returns immediately, a @{websocket_success} or @{websocket_failure}
+This returns immediately, a [`websocket_success`] or [`websocket_failure`]
 will be queued once the request has completed.
 
 @tparam[1] string url The websocket url to connect to. This should have the
@@ -290,12 +293,14 @@ of the initial websocket connection.
 
 @tparam[2] {
   url = string, headers? = { [string] = string }, timeout ?= number,
-} request Options for the websocket.  See @{http.websocket} for details on how
+} request Options for the websocket.  See [`http.websocket`] for details on how
 these options behave.
 
 @since 1.80pr1.3
 @changed 1.95.3 Added User-Agent to default headers.
 @changed 1.105.0 Added support for table argument and custom timeout.
+@changed 1.109.0 Non-binary websocket messages now use the raw bytes rather than
+                 using UTF-8.
 @see websocket_success
 @see websocket_failure
 ]]
@@ -346,6 +351,8 @@ from above are passed in as fields instead (for instance,
 @changed 1.80pr1.3 No longer asynchronous.
 @changed 1.95.3 Added User-Agent to default headers.
 @changed 1.105.0 Added support for table argument and custom timeout.
+@changed 1.109.0 Non-binary websocket messages now use the raw bytes rather than
+                 using UTF-8.
 
 @usage Connect to an echo websocket and send a message.
 

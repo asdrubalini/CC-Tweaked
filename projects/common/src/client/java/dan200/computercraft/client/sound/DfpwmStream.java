@@ -5,8 +5,9 @@
 package dan200.computercraft.client.sound;
 
 import com.mojang.blaze3d.audio.Channel;
+import dan200.computercraft.shared.peripheral.speaker.EncodedAudio;
 import dan200.computercraft.shared.peripheral.speaker.SpeakerPeripheral;
-import io.netty.buffer.ByteBuf;
+import dan200.computercraft.shared.peripheral.speaker.SpeakerPosition;
 import net.minecraft.client.sounds.AudioStream;
 import net.minecraft.client.sounds.SoundEngine;
 import org.lwjgl.BufferUtils;
@@ -36,7 +37,7 @@ class DfpwmStream implements AudioStream {
     /**
      * The {@link Channel} which this sound is playing on.
      *
-     * @see SpeakerInstance#pushAudio(ByteBuf)
+     * @see SpeakerInstance#playAudio(SpeakerPosition, float, EncodedAudio)
      */
     @Nullable
     Channel channel;
@@ -44,26 +45,28 @@ class DfpwmStream implements AudioStream {
     /**
      * The underlying {@link SoundEngine} executor.
      *
-     * @see SpeakerInstance#pushAudio(ByteBuf)
+     * @see SpeakerInstance#playAudio(SpeakerPosition, float, EncodedAudio)
      * @see SoundEngine#executor
      */
     @Nullable
     Executor executor;
 
-    private int charge = 0; // q
-    private int strength = 0; // s
     private int lowPassCharge;
-    private boolean previousBit = false;
 
     DfpwmStream() {
     }
 
-    void push(ByteBuf input) {
-        var readable = input.readableBytes();
+    void push(EncodedAudio audio) {
+        var charge = audio.charge();
+        var strength = audio.strength();
+        var previousBit = audio.previousBit();
+        var input = audio.audio();
+
+        var readable = input.remaining();
         var output = ByteBuffer.allocate(readable * 8).order(ByteOrder.nativeOrder());
 
         for (var i = 0; i < readable; i++) {
-            var inputByte = input.readByte();
+            var inputByte = input.get();
             for (var j = 0; j < 8; j++) {
                 var currentBit = (inputByte & 1) != 0;
                 var target = currentBit ? 127 : -128;

@@ -4,7 +4,6 @@
 
 package dan200.computercraft.shared.pocket.items;
 
-import com.google.common.base.Objects;
 import dan200.computercraft.annotations.ForgeOverride;
 import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.api.filesystem.Mount;
@@ -13,24 +12,27 @@ import dan200.computercraft.api.pocket.IPocketUpgrade;
 import dan200.computercraft.api.upgrades.UpgradeData;
 import dan200.computercraft.core.computer.ComputerSide;
 import dan200.computercraft.impl.PocketUpgrades;
-import dan200.computercraft.shared.ModRegistry;
 import dan200.computercraft.shared.common.IColouredItem;
 import dan200.computercraft.shared.computer.core.ComputerFamily;
+import dan200.computercraft.shared.computer.core.ServerComputer;
+import dan200.computercraft.shared.computer.core.ServerComputerRegistry;
 import dan200.computercraft.shared.computer.core.ServerContext;
 import dan200.computercraft.shared.computer.items.IComputerItem;
 import dan200.computercraft.shared.config.Config;
 import dan200.computercraft.shared.network.container.ComputerContainerData;
-import dan200.computercraft.shared.pocket.apis.PocketAPI;
+import dan200.computercraft.shared.pocket.core.PocketBrain;
+import dan200.computercraft.shared.pocket.core.PocketHolder;
 import dan200.computercraft.shared.pocket.core.PocketServerComputer;
 import dan200.computercraft.shared.pocket.inventory.PocketComputerMenuProvider;
 import dan200.computercraft.shared.util.IDAssigner;
+import dan200.computercraft.shared.util.InventoryUtil;
 import dan200.computercraft.shared.util.NBTUtil;
 import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.Container;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.InteractionResultHolder;
@@ -44,6 +46,8 @@ import net.minecraft.world.level.Level;
 
 import javax.annotation.Nullable;
 import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 public class PocketComputerItem extends Item implements IComputerItem, IMedia, IColouredItem {
     private static final String NBT_UPGRADE = "Upgrade";
@@ -60,14 +64,6 @@ public class PocketComputerItem extends Item implements IComputerItem, IMedia, I
         this.family = family;
     }
 
-    public static ItemStack create(int id, @Nullable String label, int colour, ComputerFamily family, @Nullable UpgradeData<IPocketUpgrade> upgrade) {
-        return switch (family) {
-            case NORMAL -> ModRegistry.Items.POCKET_COMPUTER_NORMAL.get().create(id, label, colour, upgrade);
-            case ADVANCED -> ModRegistry.Items.POCKET_COMPUTER_ADVANCED.get().create(id, label, colour, upgrade);
-            default -> ItemStack.EMPTY;
-        };
-    }
-
     public ItemStack create(int id, @Nullable String label, int colour, @Nullable UpgradeData<IPocketUpgrade> upgrade) {
         var result = new ItemStack(this);
         if (id >= 0) result.getOrCreateTag().putInt(NBT_ID, id);
@@ -80,13 +76,33 @@ public class PocketComputerItem extends Item implements IComputerItem, IMedia, I
         return result;
     }
 
-    private boolean tick(ItemStack stack, Level world, Entity entity, PocketServerComputer computer) {
-        var upgrade = getUpgrade(stack);
+    /**
+     * Tick a pocket computer.
+     *
+     * @param stack  The current pocket computer stack.
+     * @param holder The entity holding the pocket item.
+     * @param brain  The pocket computer brain.
+     */
+    private void tick(ItemStack stack, PocketHolder holder, PocketBrain brain) {
+        brain.updateHolder(holder);
 
-        computer.setLevel((ServerLevel) world);
-        computer.updateValues(entity, stack, upgrade);
+        // Update pocket upgrade
+        var upgrade = brain.getUpgrade();
+        if (upgrade != null) upgrade.upgrade().update(brain, brain.computer().getPeripheral(ComputerSide.BACK));
 
-        var changed = false;
+        if (updateItem(stack, brain)) holder.setChanged();
+    }
+
+    /**
+     * Copy properties from the brain back to the item stack.
+     *
+     * @param stack The current pocket computer stack.
+     * @param brain The current pocket brain.
+     * @return Whether the item was changed.
+     */
+    private boolean updateItem(ItemStack stack, PocketBrain brain) {
+        var changed = brain.updateItem(stack);
+        var computer = brain.computer();
 
         // Sync ID
         var id = computer.getID();
@@ -97,7 +113,7 @@ public class PocketComputerItem extends Item implements IComputerItem, IMedia, I
 
         // Sync label
         var label = computer.getLabel();
-        if (!Objects.equal(label, getLabel(stack))) {
+        if (!Objects.equals(label, getLabel(stack))) {
             changed = true;
             setLabel(stack, label);
         }
@@ -108,21 +124,24 @@ public class PocketComputerItem extends Item implements IComputerItem, IMedia, I
             stack.getOrCreateTag().putBoolean(NBT_ON, on);
         }
 
-        // Update pocket upgrade
-        if (upgrade != null) upgrade.update(computer, computer.getPeripheral(ComputerSide.BACK));
-
         return changed;
     }
 
     @Override
-    public void inventoryTick(ItemStack stack, Level world, Entity entity, int slotNum, boolean selected) {
-        if (world.isClientSide) return;
-        Container inventory = entity instanceof Player player ? player.getInventory() : null;
-        var computer = createServerComputer((ServerLevel) world, entity, inventory, stack);
-        computer.keepAlive();
+    public void inventoryTick(ItemStack stack, Level world, Entity entity, int compartmentSlot, boolean selected) {
+        // This (in vanilla at least) is only called for players. Don't bother to handle other entities.
+        if (world.isClientSide || !(entity instanceof ServerPlayer player)) return;
 
-        var changed = tick(stack, world, entity, computer);
-        if (changed && inventory != null) inventory.setChanged();
+        // Find the actual slot the item exists in, aborting if it can't be found.
+        var slot = InventoryUtil.getInventorySlotFromCompartment(player, compartmentSlot, stack);
+        if (slot < 0) return;
+
+        // If we're in the inventory, create a computer and keep it alive.
+        var holder = new PocketHolder.PlayerHolder(player, slot);
+        var brain = getOrCreateBrain((ServerLevel) world, holder, stack);
+        brain.computer().keepAlive();
+
+        tick(stack, holder, brain);
     }
 
     @ForgeOverride
@@ -130,8 +149,11 @@ public class PocketComputerItem extends Item implements IComputerItem, IMedia, I
         var level = entity.level();
         if (level.isClientSide || level.getServer() == null) return false;
 
+        // If we're an item entity, tick an already existing computer (as to update the position), but do not keep the
+        // computer alive.
         var computer = getServerComputer(level.getServer(), stack);
-        if (computer != null && tick(stack, entity.level(), entity, computer)) entity.setItem(stack.copy());
+        if (computer != null) tick(stack, new PocketHolder.ItemEntityHolder(entity), computer.getBrain());
+
         return false;
     }
 
@@ -139,14 +161,18 @@ public class PocketComputerItem extends Item implements IComputerItem, IMedia, I
     public InteractionResultHolder<ItemStack> use(Level world, Player player, InteractionHand hand) {
         var stack = player.getItemInHand(hand);
         if (!world.isClientSide) {
-            var computer = createServerComputer((ServerLevel) world, player, player.getInventory(), stack);
+            var holder = new PocketHolder.PlayerHolder((ServerPlayer) player, InventoryUtil.getHandSlot(player, hand));
+            var brain = getOrCreateBrain((ServerLevel) world, holder, stack);
+            var computer = brain.computer();
             computer.turnOn();
 
             var stop = false;
             var upgrade = getUpgrade(stack);
             if (upgrade != null) {
-                computer.updateValues(player, stack, upgrade);
-                stop = upgrade.onRightClick(world, computer, computer.getPeripheral(ComputerSide.BACK));
+                brain.updateHolder(holder);
+                stop = upgrade.onRightClick(world, brain, computer.getPeripheral(ComputerSide.BACK));
+                // Sync back just in case. We don't need to setChanged, as we'll return the item anyway.
+                updateItem(stack, brain);
             }
 
             if (!stop) {
@@ -196,40 +222,49 @@ public class PocketComputerItem extends Item implements IComputerItem, IMedia, I
         return ComputerCraftAPI.MOD_ID;
     }
 
-    public PocketServerComputer createServerComputer(ServerLevel level, Entity entity, @Nullable Container inventory, ItemStack stack) {
-        var sessionID = getSessionID(stack);
-
+    private PocketBrain getOrCreateBrain(ServerLevel level, PocketHolder holder, ItemStack stack) {
         var registry = ServerContext.get(level.getServer()).registry();
-        var computer = (PocketServerComputer) registry.get(sessionID, getInstanceID(stack));
-        if (computer == null) {
-            var computerID = getComputerID(stack);
-            if (computerID < 0) {
-                computerID = ComputerCraftAPI.createUniqueNumberedSaveDir(level.getServer(), IDAssigner.COMPUTER);
-                setComputerID(stack, computerID);
-            }
-
-            computer = new PocketServerComputer(level, entity.blockPosition(), getComputerID(stack), getLabel(stack), getFamily());
-
-            setInstanceID(stack, computer.register());
-            setSessionID(stack, registry.getSessionID());
-
-            var upgrade = getUpgrade(stack);
-
-            computer.updateValues(entity, stack, upgrade);
-            computer.addAPI(new PocketAPI(computer));
-
-            // Only turn on when initially creating the computer, rather than each tick.
-            if (isMarkedOn(stack) && entity instanceof Player) computer.turnOn();
-
-            if (inventory != null) inventory.setChanged();
+        {
+            var computer = getServerComputer(registry, stack);
+            if (computer != null) return computer.getBrain();
         }
-        computer.setLevel(level);
-        return computer;
+
+        var computerID = getComputerID(stack);
+        if (computerID < 0) {
+            computerID = ComputerCraftAPI.createUniqueNumberedSaveDir(level.getServer(), IDAssigner.COMPUTER);
+            setComputerID(stack, computerID);
+        }
+
+        var brain = new PocketBrain(holder, getComputerID(stack), getLabel(stack), getFamily(), getUpgradeWithData(stack));
+        var computer = brain.computer();
+
+        var tag = stack.getOrCreateTag();
+        tag.putInt(NBT_SESSION, registry.getSessionID());
+        tag.putUUID(NBT_INSTANCE, computer.register());
+
+        // Only turn on when initially creating the computer, rather than each tick.
+        if (isMarkedOn(stack) && holder instanceof PocketHolder.PlayerHolder) computer.turnOn();
+
+        updateItem(stack, brain);
+
+        holder.setChanged();
+
+        return brain;
+    }
+
+    public static boolean isServerComputer(ServerComputer computer, ItemStack stack) {
+        return stack.getItem() instanceof PocketComputerItem
+            && getServerComputer(computer.getLevel().getServer(), stack) == computer;
+    }
+
+    @Nullable
+    public static PocketServerComputer getServerComputer(ServerComputerRegistry registry, ItemStack stack) {
+        return (PocketServerComputer) registry.get(getSessionID(stack), getInstanceID(stack));
     }
 
     @Nullable
     public static PocketServerComputer getServerComputer(MinecraftServer server, ItemStack stack) {
-        return (PocketServerComputer) ServerContext.get(server).registry().get(getSessionID(stack), getInstanceID(stack));
+        return getServerComputer(ServerContext.get(server).registry(), stack);
     }
 
     // IComputerItem implementation
@@ -243,17 +278,16 @@ public class PocketComputerItem extends Item implements IComputerItem, IMedia, I
         return IComputerItem.super.getLabel(stack);
     }
 
-    @Override
     public ComputerFamily getFamily() {
         return family;
     }
 
     @Override
-    public ItemStack withFamily(ItemStack stack, ComputerFamily family) {
-        return create(
+    public ItemStack changeItem(ItemStack stack, Item newItem) {
+        return newItem instanceof PocketComputerItem pocket ? pocket.create(
             getComputerID(stack), getLabel(stack), getColour(stack),
-            family, getUpgradeWithData(stack)
-        );
+            getUpgradeWithData(stack)
+        ) : ItemStack.EMPTY;
     }
 
     // IMedia
@@ -277,22 +311,14 @@ public class PocketComputerItem extends Item implements IComputerItem, IMedia, I
         return null;
     }
 
-    public static int getInstanceID(ItemStack stack) {
+    public static @Nullable UUID getInstanceID(ItemStack stack) {
         var nbt = stack.getTag();
-        return nbt != null && nbt.contains(NBT_INSTANCE) ? nbt.getInt(NBT_INSTANCE) : -1;
-    }
-
-    private static void setInstanceID(ItemStack stack, int instanceID) {
-        stack.getOrCreateTag().putInt(NBT_INSTANCE, instanceID);
+        return nbt != null && nbt.hasUUID(NBT_INSTANCE) ? nbt.getUUID(NBT_INSTANCE) : null;
     }
 
     private static int getSessionID(ItemStack stack) {
         var nbt = stack.getTag();
         return nbt != null && nbt.contains(NBT_SESSION) ? nbt.getInt(NBT_SESSION) : -1;
-    }
-
-    private static void setSessionID(ItemStack stack, int sessionID) {
-        stack.getOrCreateTag().putInt(NBT_SESSION, sessionID);
     }
 
     private static boolean isMarkedOn(ItemStack stack) {

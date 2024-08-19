@@ -15,7 +15,6 @@ import net.minecraft.commands.CommandSourceStack;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -44,7 +43,8 @@ public class CommandBuilder<S> implements CommandNodeBuilder<S, Command<S>> {
     }
 
     public CommandBuilder<S> requires(Predicate<S> predicate) {
-        requires = requires == null ? predicate : requires.and(predicate);
+        if (requires != null) throw new IllegalStateException("Requires already set");
+        requires = predicate;
         return this;
     }
 
@@ -62,7 +62,7 @@ public class CommandBuilder<S> implements CommandNodeBuilder<S, Command<S>> {
     }
 
     public <T> CommandNodeBuilder<S, ArgCommand<S, List<T>>> argManyValue(String name, ArgumentType<T> type, T defaultValue) {
-        return argManyValue(name, type, Collections.singletonList(defaultValue));
+        return argManyValue(name, type, List.of(defaultValue));
     }
 
     public <T> CommandNodeBuilder<S, ArgCommand<S, List<T>>> argMany(String name, ArgumentType<T> type, Supplier<List<T>> empty) {

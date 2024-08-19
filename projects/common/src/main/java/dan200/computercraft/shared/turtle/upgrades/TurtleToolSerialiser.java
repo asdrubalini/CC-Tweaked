@@ -17,6 +17,8 @@ import net.minecraft.util.GsonHelper;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 
+import java.util.Objects;
+
 public final class TurtleToolSerialiser implements TurtleUpgradeSerialiser<TurtleTool> {
     public static final TurtleToolSerialiser INSTANCE = new TurtleToolSerialiser();
 
@@ -44,7 +46,8 @@ public final class TurtleToolSerialiser implements TurtleUpgradeSerialiser<Turtl
     @Override
     public TurtleTool fromNetwork(ResourceLocation id, FriendlyByteBuf buffer) {
         var adjective = buffer.readUtf();
-        var craftingItem = RegistryWrappers.readId(buffer, RegistryWrappers.ITEMS);
+        var craftingItem = buffer.readById(RegistryWrappers.ITEMS);
+        Objects.requireNonNull(craftingItem, "Unknown crafting item");
         var toolItem = buffer.readItem();
         // damageMultiplier and breakable aren't used by the client, but we need to construct the upgrade exactly
         // as otherwise syncing on an SP world will overwrite the (shared) upgrade registry with an invalid upgrade!
@@ -52,19 +55,18 @@ public final class TurtleToolSerialiser implements TurtleUpgradeSerialiser<Turtl
         var allowsEnchantments = buffer.readBoolean();
         var consumesDurability = buffer.readEnum(TurtleToolDurability.class);
 
-        var breakable = buffer.readBoolean() ? TagKey.create(Registries.BLOCK, buffer.readResourceLocation()) : null;
+        var breakable = buffer.readNullable(b -> TagKey.create(Registries.BLOCK, b.readResourceLocation()));
         return new TurtleTool(id, adjective, craftingItem, toolItem, damageMultiplier, allowsEnchantments, consumesDurability, breakable);
     }
 
     @Override
     public void toNetwork(FriendlyByteBuf buffer, TurtleTool upgrade) {
         buffer.writeUtf(upgrade.getUnlocalisedAdjective());
-        RegistryWrappers.writeId(buffer, RegistryWrappers.ITEMS, upgrade.getCraftingItem().getItem());
+        buffer.writeId(RegistryWrappers.ITEMS, upgrade.getCraftingItem().getItem());
         buffer.writeItem(upgrade.item);
         buffer.writeFloat(upgrade.damageMulitiplier);
         buffer.writeBoolean(upgrade.allowEnchantments);
         buffer.writeEnum(upgrade.consumeDurability);
-        buffer.writeBoolean(upgrade.breakable != null);
-        if (upgrade.breakable != null) buffer.writeResourceLocation(upgrade.breakable.location());
+        buffer.writeNullable(upgrade.breakable, (b, x) -> b.writeResourceLocation(x.location()));
     }
 }

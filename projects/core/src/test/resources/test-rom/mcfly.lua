@@ -55,7 +55,7 @@ local function default_stub() end
 -- @tparam string key The variable to stub
 -- @param[opt] value The value to stub it with. If this is a function, one can
 -- use the various stub expectation methods to determine what it was called
--- with. Defaults to an empty function - pass @{nil} in explicitly to set the
+-- with. Defaults to an empty function - pass [`nil`] in explicitly to set the
 -- value to nil.
 -- @treturn Stub The resulting stub
 local function stub(tbl, key, ...)
@@ -188,6 +188,9 @@ local function format(value)
     -- TODO: Look into something like mbs's pretty printer.
     if type(value) == "string" and value:find("\n") then
         return "<<<\n" .. value .. "\n>>>"
+    elseif type(value) == "string" then
+        local escaped = value:gsub("[^%g ]", function(x) return ("\\x%02x"):format(x:byte()) end)
+        return "\"" .. escaped .. "\""
     else
         local ok, res = pcall(textutils.serialise, value)
         if ok then return res else return tostring(value) end

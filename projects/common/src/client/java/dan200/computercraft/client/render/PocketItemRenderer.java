@@ -6,10 +6,12 @@ package dan200.computercraft.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
+import dan200.computercraft.client.gui.GuiSprites;
 import dan200.computercraft.client.pocket.ClientPocketComputers;
 import dan200.computercraft.client.render.text.FixedWidthFontRenderer;
 import dan200.computercraft.core.util.Colour;
 import dan200.computercraft.shared.computer.core.ComputerFamily;
+import dan200.computercraft.shared.config.Config;
 import dan200.computercraft.shared.pocket.items.PocketComputerItem;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.world.item.ItemStack;
@@ -31,10 +33,16 @@ public final class PocketItemRenderer extends ItemMapLikeRenderer {
     @Override
     protected void renderItem(PoseStack transform, MultiBufferSource bufferSource, ItemStack stack, int light) {
         var computer = ClientPocketComputers.get(stack);
-        var terminal = computer.getTerminal();
+        var terminal = computer == null ? null : computer.getTerminal();
 
-        var termWidth = terminal.getWidth();
-        var termHeight = terminal.getHeight();
+        int termWidth, termHeight;
+        if (terminal == null) {
+            termWidth = Config.pocketTermWidth;
+            termHeight = Config.pocketTermHeight;
+        } else {
+            termWidth = terminal.getWidth();
+            termHeight = terminal.getHeight();
+        }
 
         var width = termWidth * FONT_WIDTH + MARGIN * 2;
         var height = termHeight * FONT_HEIGHT + MARGIN * 2;
@@ -59,26 +67,28 @@ public final class PocketItemRenderer extends ItemMapLikeRenderer {
         renderFrame(matrix, bufferSource, family, frameColour, light, width, height);
 
         // Render the light
-        var lightColour = ClientPocketComputers.get(stack).getLightState();
-        if (lightColour == -1) lightColour = Colour.BLACK.getHex();
+        var lightColour = computer == null || computer.getLightState() == -1 ? Colour.BLACK.getHex() : computer.getLightState();
         renderLight(transform, bufferSource, lightColour, width, height);
 
-        FixedWidthFontRenderer.drawTerminal(
-            FixedWidthFontRenderer.toVertexConsumer(transform, bufferSource.getBuffer(RenderTypes.TERMINAL)),
-            MARGIN, MARGIN, terminal, MARGIN, MARGIN, MARGIN, MARGIN
-        );
+        var quadEmitter = FixedWidthFontRenderer.toVertexConsumer(transform, bufferSource.getBuffer(RenderTypes.TERMINAL));
+        if (terminal == null) {
+            FixedWidthFontRenderer.drawEmptyTerminal(quadEmitter, 0, 0, width, height);
+        } else {
+            FixedWidthFontRenderer.drawTerminal(quadEmitter, MARGIN, MARGIN, terminal, MARGIN, MARGIN, MARGIN, MARGIN);
+        }
 
         transform.popPose();
     }
 
     private static void renderFrame(Matrix4f transform, MultiBufferSource render, ComputerFamily family, int colour, int light, int width, int height) {
-        var texture = colour != -1 ? ComputerBorderRenderer.BACKGROUND_COLOUR : ComputerBorderRenderer.getTexture(family);
+        var texture = colour != -1 ? GuiSprites.COMPUTER_COLOUR : GuiSprites.getComputerTextures(family);
 
-        var r = ((colour >>> 16) & 0xFF) / 255.0f;
-        var g = ((colour >>> 8) & 0xFF) / 255.0f;
-        var b = (colour & 0xFF) / 255.0f;
+        var r = (colour >>> 16) & 0xFF;
+        var g = (colour >>> 8) & 0xFF;
+        var b = colour & 0xFF;
 
-        ComputerBorderRenderer.render(transform, render.getBuffer(ComputerBorderRenderer.getRenderType(texture)), 0, 0, 0, light, width, height, true, r, g, b);
+        var spriteRenderer = new SpriteRenderer(transform, render.getBuffer(RenderTypes.GUI_SPRITES), 0, light, r, g, b);
+        ComputerBorderRenderer.render(spriteRenderer, texture, 0, 0, width, height, true);
     }
 
     private static void renderLight(PoseStack transform, MultiBufferSource render, int colour, int width, int height) {

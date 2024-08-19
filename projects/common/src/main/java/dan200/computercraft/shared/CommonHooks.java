@@ -14,12 +14,16 @@ import dan200.computercraft.shared.computer.metrics.ComputerMBean;
 import dan200.computercraft.shared.peripheral.monitor.MonitorWatcher;
 import dan200.computercraft.shared.util.DropConsumer;
 import dan200.computercraft.shared.util.TickScheduler;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.dedicated.DedicatedServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.packs.resources.PreparableReloadListener;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.storage.loot.BuiltInLootTables;
@@ -69,8 +73,17 @@ public final class CommonHooks {
         NetworkUtils.reset();
     }
 
+    public static void onServerChunkUnload(LevelChunk chunk) {
+        if (!(chunk.getLevel() instanceof ServerLevel)) throw new IllegalArgumentException("Not a server chunk.");
+        TickScheduler.onChunkUnload(chunk);
+    }
+
     public static void onChunkWatch(LevelChunk chunk, ServerPlayer player) {
         MonitorWatcher.onWatch(chunk, player);
+    }
+
+    public static void onChunkTicketLevelChanged(ServerLevel level, long chunkPos, int oldLevel, int newLevel) {
+        TickScheduler.onChunkTicketChanged(level, chunkPos, oldLevel, newLevel);
     }
 
     public static final ResourceLocation TREASURE_DISK_LOOT = new ResourceLocation(ComputerCraftAPI.MOD_ID, "treasure_disk");
@@ -110,5 +123,18 @@ public final class CommonHooks {
 
     public static boolean onLivingDrop(Entity entity, ItemStack stack) {
         return DropConsumer.onLivingDrop(entity, stack);
+    }
+
+    /**
+     * Add items to an existing creative tab.
+     *
+     * @param key     The {@link ResourceKey} for this creative tab.
+     * @param context Additional parameters used for building the contents.
+     * @param out     The creative tab output to append items to.
+     */
+    public static void onBuildCreativeTab(ResourceKey<CreativeModeTab> key, CreativeModeTab.ItemDisplayParameters context, CreativeModeTab.Output out) {
+        if (key == CreativeModeTabs.OP_BLOCKS && context.hasPermissions()) {
+            out.accept(ModRegistry.Items.COMPUTER_COMMAND.get());
+        }
     }
 }

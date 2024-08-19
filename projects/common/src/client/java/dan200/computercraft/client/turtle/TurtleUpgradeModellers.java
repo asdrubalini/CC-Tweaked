@@ -11,25 +11,31 @@ import dan200.computercraft.api.turtle.ITurtleAccess;
 import dan200.computercraft.api.turtle.ITurtleUpgrade;
 import dan200.computercraft.api.turtle.TurtleSide;
 import dan200.computercraft.api.turtle.TurtleUpgradeSerialiser;
+import dan200.computercraft.impl.PlatformHelper;
 import dan200.computercraft.impl.TurtleUpgrades;
 import dan200.computercraft.impl.UpgradeManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 /**
  * A registry of {@link TurtleUpgradeModeller}s.
- *
- * @see dan200.computercraft.api.client.ComputerCraftAPIClient#registerTurtleUpgradeModeller(TurtleUpgradeSerialiser, TurtleUpgradeModeller)
  */
 public final class TurtleUpgradeModellers {
+    private static final Logger LOG = LoggerFactory.getLogger(TurtleUpgradeModellers.class);
+
     private static final TurtleUpgradeModeller<ITurtleUpgrade> NULL_TURTLE_MODELLER = (upgrade, turtle, side) ->
         new TransformedModel(Minecraft.getInstance().getModelManager().getMissingModel(), Transformation.identity());
 
     private static final Map<TurtleUpgradeSerialiser<?>, TurtleUpgradeModeller<?>> turtleModels = new ConcurrentHashMap<>();
+    private static volatile boolean fetchedModels;
 
     /**
      * In order to avoid a double lookup of {@link ITurtleUpgrade} to {@link UpgradeManager.UpgradeWrapper} to
@@ -43,12 +49,18 @@ public final class TurtleUpgradeModellers {
     }
 
     public static <T extends ITurtleUpgrade> void register(TurtleUpgradeSerialiser<T> serialiser, TurtleUpgradeModeller<T> modeller) {
-        synchronized (turtleModels) {
-            if (turtleModels.containsKey(serialiser)) {
-                throw new IllegalStateException("Modeller already registered for serialiser");
-            }
+        if (fetchedModels) {
+            // TODO(1.20.4): Replace with an error.
+            LOG.warn(
+                "Turtle upgrade serialiser {} was registered too late, its models may not be loaded correctly. If you are " +
+                    "the mod author, you may be using a deprecated API - see https://github.com/cc-tweaked/CC-Tweaked/pull/1684 " +
+                    "for further information.",
+                PlatformHelper.get().getRegistryKey(TurtleUpgradeSerialiser.registryId(), serialiser)
+            );
+        }
 
-            turtleModels.put(serialiser, modeller);
+        if (turtleModels.putIfAbsent(serialiser, modeller) != null) {
+            throw new IllegalStateException("Modeller already registered for serialiser");
         }
     }
 
@@ -70,5 +82,10 @@ public final class TurtleUpgradeModellers {
 
         var modeller = turtleModels.get(wrapper.serialiser());
         return modeller == null ? NULL_TURTLE_MODELLER : modeller;
+    }
+
+    public static Stream<ResourceLocation> getDependencies() {
+        fetchedModels = true;
+        return turtleModels.values().stream().flatMap(x -> x.getDependencies().stream());
     }
 }

@@ -4,7 +4,6 @@
 
 package dan200.computercraft.shared.peripheral.modem.wired;
 
-import com.google.common.collect.ImmutableMap;
 import dan200.computercraft.api.filesystem.Mount;
 import dan200.computercraft.api.filesystem.WritableMount;
 import dan200.computercraft.api.lua.*;
@@ -16,6 +15,7 @@ import dan200.computercraft.api.peripheral.IPeripheral;
 import dan200.computercraft.api.peripheral.NotAttachedException;
 import dan200.computercraft.api.peripheral.WorkMonitor;
 import dan200.computercraft.core.apis.PeripheralAPI;
+import dan200.computercraft.core.computer.GuardedLuaContext;
 import dan200.computercraft.core.methods.PeripheralMethod;
 import dan200.computercraft.core.util.LuaUtil;
 import dan200.computercraft.shared.computer.core.ServerContext;
@@ -23,6 +23,7 @@ import dan200.computercraft.shared.peripheral.modem.ModemPeripheral;
 import dan200.computercraft.shared.peripheral.modem.ModemState;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,12 +36,21 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
     private static final Logger LOG = LoggerFactory.getLogger(WiredModemPeripheral.class);
 
     private final WiredModemElement modem;
+    private final WiredModemLocalPeripheral localPeripheral;
+    private final BlockEntity target;
 
     private final Map<IComputerAccess, ConcurrentMap<String, RemotePeripheralWrapper>> peripheralWrappers = new HashMap<>(1);
 
-    public WiredModemPeripheral(ModemState state, WiredModemElement modem) {
+    public WiredModemPeripheral(
+        ModemState state,
+        WiredModemElement modem,
+        WiredModemLocalPeripheral localPeripheral,
+        BlockEntity target
+    ) {
         super(state);
         this.modem = modem;
+        this.localPeripheral = localPeripheral;
+        this.target = target;
     }
 
     //region IPacketSender implementation
@@ -63,13 +73,11 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
     public Level getLevel() {
         return modem.getLevel();
     }
-
-    protected abstract WiredModemLocalPeripheral getLocalPeripheral();
     //endregion
 
     @Override
     public Set<String> getAdditionalTypes() {
-        return Collections.singleton("peripheral_hub");
+        return Set.of("peripheral_hub");
     }
 
     //region Peripheral methods
@@ -80,9 +88,8 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
      * If this computer is attached to the network, it _will not_ be included in
      * this list.
      * <p>
-     * :::note
-     * This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
-     * :::
+     * > [!NOTE]
+     * > This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
      *
      * @param computer The calling computer.
      * @return Remote peripheral names on the network.
@@ -90,15 +97,14 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
     @LuaFunction
     public final Collection<String> getNamesRemote(IComputerAccess computer) {
         var wrappers = getWrappers(computer);
-        return wrappers == null ? Collections.emptySet() : wrappers.keySet();
+        return wrappers == null ? Set.of() : wrappers.keySet();
     }
 
     /**
      * Determine if a peripheral is available on this wired network.
      * <p>
-     * :::note
-     * This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
-     * :::
+     * > [!NOTE]
+     * > This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
      *
      * @param computer The calling computer.
      * @param name     The peripheral's name.
@@ -113,9 +119,8 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
     /**
      * Get the type of a peripheral is available on this wired network.
      * <p>
-     * :::note
-     * This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
-     * :::
+     * > [!NOTE]
+     * > This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
      *
      * @param computer The calling computer.
      * @param name     The peripheral's name.
@@ -133,9 +138,8 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
     /**
      * Check a peripheral is of a particular type.
      * <p>
-     * :::note
-     * This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
-     * :::
+     * > [!NOTE]
+     * > This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
      *
      * @param computer The calling computer.
      * @param name     The peripheral's name.
@@ -154,9 +158,8 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
     /**
      * Get all available methods for the remote peripheral with the given name.
      * <p>
-     * :::note
-     * This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
-     * :::
+     * > [!NOTE]
+     * > This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
      *
      * @param computer The calling computer.
      * @param name     The peripheral's name.
@@ -175,9 +178,8 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
     /**
      * Call a method on a peripheral on this wired network.
      * <p>
-     * :::note
-     * This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
-     * :::
+     * > [!NOTE]
+     * > This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
      *
      * @param computer  The calling computer.
      * @param context   The Lua context we're executing in.
@@ -205,9 +207,8 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
      * may be used by other computers on the network to wrap this computer as a
      * peripheral.
      * <p>
-     * :::note
-     * This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
-     * :::
+     * > [!NOTE]
+     * > This function only appears on wired modems. Check {@link #isWireless} returns false before calling it.
      *
      * @return The current computer's name.
      * @cc.treturn string|nil The current computer's name on the wired network.
@@ -215,7 +216,7 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
      */
     @LuaFunction
     public final @Nullable Object[] getNameLocal() {
-        var local = getLocalPeripheral().getConnectedName();
+        var local = localPeripheral.getConnectedName();
         return local == null ? null : new Object[]{ local };
     }
 
@@ -226,8 +227,7 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
 
         ConcurrentMap<String, RemotePeripheralWrapper> wrappers;
         synchronized (peripheralWrappers) {
-            wrappers = peripheralWrappers.get(computer);
-            if (wrappers == null) peripheralWrappers.put(computer, wrappers = new ConcurrentHashMap<>());
+            wrappers = peripheralWrappers.computeIfAbsent(computer, k -> new ConcurrentHashMap<>());
         }
 
         synchronized (modem.getRemotePeripherals()) {
@@ -253,11 +253,13 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
     }
 
     @Override
-    public boolean equals(@Nullable IPeripheral other) {
-        if (other instanceof WiredModemPeripheral otherModem) {
-            return otherModem.modem == modem;
-        }
-        return false;
+    public final boolean equals(@Nullable IPeripheral other) {
+        return other instanceof WiredModemPeripheral otherModem && otherModem.modem == modem;
+    }
+
+    @Override
+    public final Object getTarget() {
+        return target;
     }
     //endregion
 
@@ -280,12 +282,11 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
                 var wrapper = wrappers.remove(name);
                 if (wrapper != null) wrapper.detach();
             }
-
         }
     }
 
     private void attachPeripheralImpl(IComputerAccess computer, ConcurrentMap<String, RemotePeripheralWrapper> peripherals, String periphName, IPeripheral peripheral) {
-        if (!peripherals.containsKey(periphName) && !periphName.equals(getLocalPeripheral().getConnectedName())) {
+        if (!peripherals.containsKey(periphName) && !periphName.equals(localPeripheral.getConnectedName())) {
             var methods = ServerContext.get(((ServerLevel) getLevel()).getServer()).peripheralMethods().getSelfMethods(peripheral);
             var wrapper = new RemotePeripheralWrapper(modem, peripheral, computer, periphName, methods);
             peripherals.put(periphName, wrapper);
@@ -304,7 +305,7 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
         return wrappers == null ? null : wrappers.get(remoteName);
     }
 
-    private static class RemotePeripheralWrapper implements IComputerAccess {
+    private static class RemotePeripheralWrapper implements IComputerAccess, GuardedLuaContext.Guard {
         private final WiredModemElement element;
         private final IPeripheral peripheral;
         private final IComputerAccess computer;
@@ -316,6 +317,8 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
 
         private volatile boolean attached;
         private final Set<String> mounts = new HashSet<>();
+
+        private @Nullable GuardedLuaContext contextWrapper;
 
         RemotePeripheralWrapper(WiredModemElement element, IPeripheral peripheral, IComputerAccess computer, String name, Map<String, PeripheralMethod> methods) {
             this.element = element;
@@ -364,7 +367,19 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
         public MethodResult callMethod(ILuaContext context, String methodName, IArguments arguments) throws LuaException {
             var method = methodMap.get(methodName);
             if (method == null) throw new LuaException("No such method " + methodName);
-            return method.apply(peripheral, context, this, arguments);
+
+            // Wrap the ILuaContext. We try to reuse the previous context where possible to avoid allocations.
+            var contextWrapper = this.contextWrapper;
+            if (contextWrapper == null || !contextWrapper.wraps(context)) {
+                contextWrapper = this.contextWrapper = new GuardedLuaContext(context, this);
+            }
+
+            return method.apply(peripheral, contextWrapper, this, arguments);
+        }
+
+        @Override
+        public boolean checkValid() {
+            return attached;
         }
 
         // IComputerAccess implementation
@@ -436,7 +451,7 @@ public abstract class WiredModemPeripheral extends ModemPeripheral implements Wi
         public Map<String, IPeripheral> getAvailablePeripherals() {
             if (!attached) throw new NotAttachedException();
             synchronized (element.getRemotePeripherals()) {
-                return ImmutableMap.copyOf(element.getRemotePeripherals());
+                return Map.copyOf(element.getRemotePeripherals());
             }
         }
 

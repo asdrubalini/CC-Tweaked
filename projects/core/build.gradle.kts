@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+import cc.tweaked.gradle.getAbsolutePath
+
 plugins {
     `java-library`
     `java-test-fixtures`
@@ -24,13 +26,13 @@ dependencies {
     implementation(libs.netty.socks)
     implementation(libs.netty.proxy)
     implementation(libs.slf4j)
-    implementation(libs.asm)
 
     testFixturesImplementation(libs.slf4j)
     testFixturesApi(platform(libs.kotlin.platform))
     testFixturesApi(libs.bundles.test)
     testFixturesApi(libs.bundles.kotlin)
 
+    testImplementation(libs.asm)
     testImplementation(libs.bundles.test)
     testRuntimeOnly(libs.bundles.testRuntime)
     testRuntimeOnly(libs.slf4j.simple)
@@ -45,14 +47,7 @@ tasks.processResources {
 }
 
 tasks.test {
-    systemProperty("cct.test-files", buildDir.resolve("tmp/testFiles").absolutePath)
-}
-
-tasks.testFixturesJar {
-    manifest {
-        // Ensure the test fixtures jar loads as a mod. Thanks FML >_>.
-        attributes("FMLModType" to "GAMELIBRARY")
-    }
+    systemProperty("cct.test-files", layout.buildDirectory.dir("tmp/testFiles").getAbsolutePath())
 }
 
 val checkChangelog by tasks.registering(cc.tweaked.gradle.CheckChangelog::class) {

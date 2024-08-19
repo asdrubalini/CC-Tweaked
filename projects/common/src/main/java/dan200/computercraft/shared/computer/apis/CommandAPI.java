@@ -6,19 +6,23 @@ package dan200.computercraft.shared.computer.apis;
 
 import com.mojang.brigadier.tree.CommandNode;
 import com.mojang.brigadier.tree.LiteralCommandNode;
+import dan200.computercraft.api.component.AdminComputer;
 import dan200.computercraft.api.detail.BlockReference;
 import dan200.computercraft.api.detail.VanillaDetailRegistries;
 import dan200.computercraft.api.lua.*;
 import dan200.computercraft.core.Logging;
-import dan200.computercraft.shared.computer.blocks.CommandComputerBlockEntity;
 import dan200.computercraft.shared.util.NBTUtil;
+import net.minecraft.commands.CommandSource;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec2;
+import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,10 +35,13 @@ import java.util.*;
 public class CommandAPI implements ILuaAPI {
     private static final Logger LOG = LoggerFactory.getLogger(CommandAPI.class);
 
-    private final CommandComputerBlockEntity computer;
+    private final IComputerSystem computer;
+    private final AdminComputer admin;
+    private final OutputReceiver receiver = new OutputReceiver();
 
-    public CommandAPI(CommandComputerBlockEntity computer) {
+    public CommandAPI(IComputerSystem computer, AdminComputer admin) {
         this.computer = computer;
+        this.admin = admin;
     }
 
     @Override
@@ -48,15 +55,14 @@ public class CommandAPI implements ILuaAPI {
 
     private Object[] doCommand(String command) {
         var server = computer.getLevel().getServer();
-        if (server == null || !server.isCommandBlockEnabled()) {
+        if (!server.isCommandBlockEnabled()) {
             return new Object[]{ false, createOutput("Command blocks disabled by server") };
         }
 
         var commandManager = server.getCommands();
-        var receiver = computer.getReceiver();
         try {
             receiver.clearOutput();
-            var result = commandManager.performPrefixedCommand(computer.getSource(), command);
+            var result = commandManager.performPrefixedCommand(getSource(), command);
             return new Object[]{ result > 0, receiver.copyOutput(), result };
         } catch (Throwable t) {
             LOG.error(Logging.JAVA_ERROR, "Error running command.", t);
@@ -134,12 +140,11 @@ public class CommandAPI implements ILuaAPI {
     public final List<String> list(IArguments args) throws LuaException {
         var server = computer.getLevel().getServer();
 
-        if (server == null) return Collections.emptyList();
         CommandNode<CommandSourceStack> node = server.getCommands().getDispatcher().getRoot();
         for (var j = 0; j < args.count(); j++) {
             var name = args.getString(j);
             node = node.getChild(name);
-            if (!(node instanceof LiteralCommandNode)) return Collections.emptyList();
+            if (!(node instanceof LiteralCommandNode)) return List.of();
         }
 
         List<String> result = new ArrayList<>();
@@ -161,18 +166,18 @@ public class CommandAPI implements ILuaAPI {
     @LuaFunction
     public final Object[] getBlockPosition() {
         // This is probably safe to do on the Lua thread. Probably.
-        var pos = computer.getBlockPos();
+        var pos = computer.getPosition();
         return new Object[]{ pos.getX(), pos.getY(), pos.getZ() };
     }
 
     /**
      * Get information about a range of blocks.
      * <p>
-     * This returns the same information as @{getBlockInfo}, just for multiple
+     * This returns the same information as [`getBlockInfo`], just for multiple
      * blocks at once.
      * <p>
      * Blocks are traversed by ascending y level, followed by z and x - the returned
-     * table may be indexed using `x + z*width + y*depth*depth`.
+     * table may be indexed using `x + z*width + y*width*depth + 1`.
      *
      * @param minX      The start x coordinate of the range to query.
      * @param minY      The start y coordinate of the range to query.
@@ -186,6 +191,24 @@ public class CommandAPI implements ILuaAPI {
      * @throws LuaException If trying to get information about more than 4096 blocks.
      * @cc.since 1.76
      * @cc.changed 1.99 Added {@code dimension} argument.
+     * @cc.usage Print out all blocks in a cube around the computer.
+     *
+     * <pre>{@code
+     * -- Get a 3x3x3 cube around the computer
+     * local x, y, z = commands.getBlockPosition()
+     * local min_x, min_y, min_z, max_x, max_y, max_z = x - 1, y - 1, z - 1, x + 1, y + 1, z + 1
+     * local blocks = commands.getBlockInfos(min_x, min_y, min_z, max_x, max_y, max_z)
+     *
+     * -- Then loop over all blocks and print them out.
+     * local width, height, depth = max_x - min_x + 1, max_y - min_y + 1, max_z - min_z + 1
+     * for x = min_x, max_x do
+     *   for y = min_y, max_y do
+     *     for z = min_z, max_z do
+     *       print(("%d, %d %d => %s"):format(x, y, z, blocks[(x - min_x) + (z - min_z) * width + (y - min_y) * width * depth + 1].name))
+     *     end
+     *   end
+     * end
+     * }</pre>
      */
     @LuaFunction(mainThread = true)
     public final List<Map<?, ?>> getBlockInfos(int minX, int minY, int minZ, int maxX, int maxY, int maxZ, Optional<String> dimension) throws LuaException {
@@ -201,7 +224,7 @@ public class CommandAPI implements ILuaAPI {
             Math.max(minY, maxY),
             Math.max(minZ, maxZ)
         );
-        if (world == null || !world.isInWorldBounds(min) || !world.isInWorldBounds(max)) {
+        if (!world.isInWorldBounds(min) || !world.isInWorldBounds(max)) {
             throw new LuaException("Co-ordinates out of range");
         }
 
@@ -225,7 +248,7 @@ public class CommandAPI implements ILuaAPI {
      * Get some basic information about a block.
      * <p>
      * The returned table contains the current name, metadata and block state (as
-     * with @{turtle.inspect}). If there is a tile entity for that block, its NBT
+     * with [`turtle.inspect`]). If there is a tile entity for that block, its NBT
      * will also be returned.
      *
      * @param x         The x position of the block to query.
@@ -246,10 +269,9 @@ public class CommandAPI implements ILuaAPI {
     }
 
     private Level getLevel(Optional<String> id) throws LuaException {
-        var currentLevel = (ServerLevel) computer.getLevel();
-        if (currentLevel == null) throw new LuaException("No world exists");
+        var currentLevel = computer.getLevel();
 
-        if (!id.isPresent()) return currentLevel;
+        if (id.isEmpty()) return currentLevel;
 
         var dimensionId = ResourceLocation.tryParse(id.get());
         if (dimensionId == null) throw new LuaException("Invalid dimension name");
@@ -258,5 +280,53 @@ public class CommandAPI implements ILuaAPI {
         if (level == null) throw new LuaException("Unknown dimension");
 
         return level;
+    }
+
+    private CommandSourceStack getSource() {
+        var name = "@";
+        var label = computer.getLabel();
+        if (label != null) name = label;
+
+        return new CommandSourceStack(receiver,
+            Vec3.atCenterOf(computer.getPosition()), Vec2.ZERO,
+            computer.getLevel(), admin.permissionLevel(),
+            name, Component.literal(name),
+            computer.getLevel().getServer(), null
+        );
+    }
+
+    /**
+     * A {@link CommandSource} that consumes output messages and stores them to a list.
+     */
+    private final class OutputReceiver implements CommandSource {
+        private final List<String> output = new ArrayList<>();
+
+        void clearOutput() {
+            output.clear();
+        }
+
+        List<String> copyOutput() {
+            return List.copyOf(output);
+        }
+
+        @Override
+        public void sendSystemMessage(Component textComponent) {
+            output.add(textComponent.getString());
+        }
+
+        @Override
+        public boolean acceptsSuccess() {
+            return true;
+        }
+
+        @Override
+        public boolean acceptsFailure() {
+            return true;
+        }
+
+        @Override
+        public boolean shouldInformAdmins() {
+            return computer.getLevel().getGameRules().getBoolean(GameRules.RULE_COMMANDBLOCKOUTPUT);
+        }
     }
 }

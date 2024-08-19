@@ -1,6 +1,6 @@
 -- SPDX-FileCopyrightText: 2019 The CC: Tweaked Developers
 --
--- SPDX-License-Identifier: LicenseRef-CCPL
+-- SPDX-License-Identifier: MPL-2.0
 
 local helpers = require "test_helpers"
 
@@ -186,6 +186,30 @@ describe("The textutils library", function()
             expect(textutils.serializeJSON("\u{3053}\u{3093}\u{306B}\u{3061}\u{306F}", { unicode_strings = true })):eq([["\u3053\u3093\u306B\u3061\u306F"]])
             expect(textutils.serializeJSON("\u{1f62f}", { unicode_strings = true })):eq([["\uD83D\uDE2F"]])
             expect(textutils.serializeJSON("\\\"\u{00ff}\n\"", { unicode_strings = true })):eq('"\\\\\\"\\u00FF\\n\\""')
+        end)
+
+        it("fails on recursive/repeated tables", function()
+            local rep = {}
+            expect.error(textutils.serialiseJSON, { rep, rep }):eq("Cannot serialize table with repeated entries")
+
+            local rep2 = { 1 }
+            expect.error(textutils.serialiseJSON, { rep2, rep2 }):eq("Cannot serialize table with repeated entries")
+
+            local recurse = {}
+            recurse[1] = recurse
+            expect.error(textutils.serialiseJSON, recurse):eq("Cannot serialize table with recursive entries")
+        end)
+
+        it("can allow repeated tables", function()
+            local rep = {}
+            expect(textutils.serialiseJSON({ rep, rep }, { allow_repetitions = true })):eq("[{},{}]")
+
+            local rep2 = { 1 }
+            expect(textutils.serialiseJSON({ rep2, rep2 }, { allow_repetitions = true })):eq("[[1],[1]]")
+
+            local recurse = {}
+            recurse[1] = recurse
+            expect.error(textutils.serialiseJSON, recurse, { allow_repetitions = true }):eq("Cannot serialize table with recursive entries")
         end)
     end)
 

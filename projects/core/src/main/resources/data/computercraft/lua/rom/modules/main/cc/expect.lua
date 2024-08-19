@@ -2,7 +2,7 @@
 --
 -- SPDX-License-Identifier: MPL-2.0
 
---[[- The @{cc.expect} library provides helper functions for verifying that
+--[[- The [`cc.expect`] library provides helper functions for verifying that
 function arguments are well-formed and of the correct type.
 
 @module cc.expect
@@ -118,8 +118,8 @@ end
 --- Expect a number to be within a specific range.
 --
 -- @tparam number num The value to check.
--- @tparam number min The minimum value, if nil then `-math.huge` is used.
--- @tparam number max The maximum value, if nil then `math.huge` is used.
+-- @tparam[opt=-math.huge] number min The minimum value.
+-- @tparam[opt=math.huge] number max The maximum value.
 -- @return The given `value`.
 -- @throws If the value is outside of the allowed range.
 -- @since 1.96.0

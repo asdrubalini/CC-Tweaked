@@ -8,7 +8,6 @@ import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.api.filesystem.Mount;
 import dan200.computercraft.api.media.IMedia;
 import dan200.computercraft.shared.computer.blocks.AbstractComputerBlock;
-import dan200.computercraft.shared.computer.core.ComputerFamily;
 import dan200.computercraft.shared.config.Config;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -22,11 +21,8 @@ import javax.annotation.Nullable;
 import java.util.List;
 
 public abstract class AbstractComputerItem extends BlockItem implements IComputerItem, IMedia {
-    private final ComputerFamily family;
-
     public AbstractComputerItem(AbstractComputerBlock<?> block, Properties settings) {
         super(block, settings);
-        family = block.getFamily();
     }
 
     @Override
@@ -46,13 +42,6 @@ public abstract class AbstractComputerItem extends BlockItem implements ICompute
     }
 
     @Override
-    public final ComputerFamily getFamily() {
-        return family;
-    }
-
-    // IMedia implementation
-
-    @Override
     public boolean setLabel(ItemStack stack, @Nullable String label) {
         if (label != null) {
             stack.setHoverName(Component.literal(label));
@@ -64,13 +53,7 @@ public abstract class AbstractComputerItem extends BlockItem implements ICompute
 
     @Override
     public @Nullable Mount createDataMount(ItemStack stack, ServerLevel level) {
-        var family = getFamily();
-        if (family != ComputerFamily.COMMAND) {
-            var id = getComputerID(stack);
-            if (id >= 0) {
-                return ComputerCraftAPI.createSaveDirMount(level.getServer(), "computer/" + id, Config.computerSpaceLimit);
-            }
-        }
-        return null;
+        var id = getComputerID(stack);
+        return id >= 0 ? ComputerCraftAPI.createSaveDirMount(level.getServer(), "computer/" + id, Config.computerSpaceLimit) : null;
     }
 }

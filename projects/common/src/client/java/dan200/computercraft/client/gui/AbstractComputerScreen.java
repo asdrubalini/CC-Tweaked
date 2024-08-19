@@ -7,8 +7,9 @@ package dan200.computercraft.client.gui;
 import dan200.computercraft.client.gui.widgets.ComputerSidebar;
 import dan200.computercraft.client.gui.widgets.DynamicImageButton;
 import dan200.computercraft.client.gui.widgets.TerminalWidget;
-import dan200.computercraft.client.platform.ClientPlatformHelper;
+import dan200.computercraft.client.network.ClientNetworking;
 import dan200.computercraft.core.terminal.Terminal;
+import dan200.computercraft.core.util.Nullability;
 import dan200.computercraft.shared.computer.core.ComputerFamily;
 import dan200.computercraft.shared.computer.core.InputHandler;
 import dan200.computercraft.shared.computer.inventory.AbstractComputerMenu;
@@ -18,7 +19,9 @@ import dan200.computercraft.shared.config.Config;
 import dan200.computercraft.shared.network.server.UploadFileMessage;
 import net.minecraft.ChatFormatting;
 import net.minecraft.Util;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
@@ -33,7 +36,6 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -96,8 +98,8 @@ public abstract class AbstractComputerScreen<T extends AbstractComputerMenu> ext
         getTerminal().update();
 
         if (uploadNagDeadline != Long.MAX_VALUE && Util.getNanos() >= uploadNagDeadline) {
-            new ItemToast(minecraft, displayStack, NO_RESPONSE_TITLE, NO_RESPONSE_MSG, ItemToast.TRANSFER_NO_RESPONSE_TOKEN)
-                .showOrReplace(minecraft.getToasts());
+            new ItemToast(minecraft(), displayStack, NO_RESPONSE_TITLE, NO_RESPONSE_MSG, ItemToast.TRANSFER_NO_RESPONSE_TOKEN)
+                .showOrReplace(minecraft().getToasts());
             uploadNagDeadline = Long.MAX_VALUE;
         }
     }
@@ -145,6 +147,11 @@ public abstract class AbstractComputerScreen<T extends AbstractComputerMenu> ext
             || super.mouseDragged(x, y, button, deltaX, deltaY);
     }
 
+    @Override
+    public void setFocused(@Nullable GuiEventListener listener) {
+        // Don't clear and re-focus if we're already focused.
+        if (listener != getFocused()) super.setFocused(listener);
+    }
 
     @Override
     protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
@@ -202,7 +209,7 @@ public abstract class AbstractComputerScreen<T extends AbstractComputerMenu> ext
             return;
         }
 
-        if (toUpload.size() > 0) UploadFileMessage.send(menu, toUpload, ClientPlatformHelper.get()::sendToServer);
+        if (!toUpload.isEmpty()) UploadFileMessage.send(menu, toUpload, ClientNetworking::sendToServer);
     }
 
     public void uploadResult(UploadResult result, @Nullable Component message) {
@@ -218,9 +225,13 @@ public abstract class AbstractComputerScreen<T extends AbstractComputerMenu> ext
     }
 
     private void alert(Component title, Component message) {
-        OptionScreen.show(minecraft, title, message,
-            Collections.singletonList(OptionScreen.newButton(OK, b -> minecraft.setScreen(this))),
-            () -> minecraft.setScreen(this)
+        OptionScreen.show(minecraft(), title, message,
+            List.of(OptionScreen.newButton(OK, b -> minecraft().setScreen(this))),
+            () -> minecraft().setScreen(this)
         );
+    }
+
+    private Minecraft minecraft() {
+        return Nullability.assertNonNull(minecraft);
     }
 }

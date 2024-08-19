@@ -8,27 +8,35 @@ import dan200.computercraft.api.ComputerCraftAPI;
 import dan200.computercraft.api.detail.FabricDetailRegistries;
 import dan200.computercraft.api.node.wired.WiredElementLookup;
 import dan200.computercraft.api.peripheral.PeripheralLookup;
+import dan200.computercraft.impl.Peripherals;
 import dan200.computercraft.shared.command.CommandComputerCraft;
 import dan200.computercraft.shared.config.Config;
 import dan200.computercraft.shared.config.ConfigSpec;
 import dan200.computercraft.shared.details.FluidDetails;
+import dan200.computercraft.shared.integration.CreateIntegration;
+import dan200.computercraft.shared.network.NetworkMessages;
 import dan200.computercraft.shared.network.client.UpgradesLoadedMessage;
+import dan200.computercraft.shared.network.server.ServerNetworking;
 import dan200.computercraft.shared.peripheral.commandblock.CommandBlockPeripheral;
 import dan200.computercraft.shared.peripheral.generic.methods.InventoryMethods;
 import dan200.computercraft.shared.peripheral.modem.wired.CableBlockEntity;
 import dan200.computercraft.shared.peripheral.modem.wired.WiredModemFullBlockEntity;
 import dan200.computercraft.shared.peripheral.modem.wireless.WirelessModemBlockEntity;
 import dan200.computercraft.shared.platform.FabricConfigFile;
-import dan200.computercraft.shared.platform.NetworkHandler;
-import dan200.computercraft.shared.platform.PlatformHelper;
+import dan200.computercraft.shared.platform.FabricMessageType;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.fabricmc.fabric.api.loot.v2.LootTableEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.fabric.api.resource.IdentifiableResourceReloadListener;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.PreparableReloadListener;
@@ -44,7 +52,12 @@ public class ComputerCraft {
     private static final LevelResource SERVERCONFIG = new LevelResource("serverconfig");
 
     public static void init() {
-        NetworkHandler.init();
+        for (var type : NetworkMessages.getServerbound()) {
+            ServerPlayNetworking.registerGlobalReceiver(
+                FabricMessageType.toFabricType(type), (packet, player, sender) -> packet.payload().handle(() -> player)
+            );
+        }
+
         ModRegistry.register();
         ModRegistry.registerMainThread();
 
@@ -82,10 +95,11 @@ public class ComputerCraft {
             CommonHooks.onServerStopped();
             ((FabricConfigFile) ConfigSpec.serverSpec).unload();
         });
-        ServerLifecycleEvents.SYNC_DATA_PACK_CONTENTS.register((player, joined) -> PlatformHelper.get().sendToPlayer(new UpgradesLoadedMessage(), player));
+        ServerLifecycleEvents.SYNC_DATA_PACK_CONTENTS.register((player, joined) -> ServerNetworking.sendToPlayer(new UpgradesLoadedMessage(), player));
 
         ServerTickEvents.START_SERVER_TICK.register(CommonHooks::onServerTickStart);
         ServerTickEvents.START_SERVER_TICK.register(s -> CommonHooks.onServerTickEnd());
+        ServerChunkEvents.CHUNK_UNLOAD.register((l, c) -> CommonHooks.onServerChunkUnload(c));
 
         PlayerBlockBreakEvents.BEFORE.register(FabricCommonHooks::onBlockDestroy);
         UseBlockCallback.EVENT.register(FabricCommonHooks::useOnBlock);
@@ -95,11 +109,20 @@ public class ComputerCraft {
             if (pool != null) tableBuilder.withPool(pool);
         });
 
+        ItemGroupEvents.MODIFY_ENTRIES_ALL.register((tab, entries) -> CommonHooks.onBuildCreativeTab(
+            BuiltInRegistries.CREATIVE_MODE_TAB.getResourceKey(tab).orElseThrow(),
+            entries.getContext(), entries
+        ));
+
         CommonHooks.onDatapackReload((name, listener) -> ResourceManagerHelper.get(PackType.SERVER_DATA).registerReloadListener(new ReloadListener(name, listener)));
 
         FabricDetailRegistries.FLUID_VARIANT.addProvider(FluidDetails::fill);
 
         ComputerCraftAPI.registerGenericSource(new InventoryMethods());
+
+        Peripherals.addGenericLookup((world, pos, state, blockEntity, side, invalidate) -> InventoryMethods.extractContainer(world, pos, state, blockEntity, side));
+
+        if (FabricLoader.getInstance().isModLoaded(CreateIntegration.ID)) CreateIntegration.setup();
     }
 
     private record ReloadListener(String name, PreparableReloadListener listener)

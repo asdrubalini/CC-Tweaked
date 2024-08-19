@@ -5,6 +5,7 @@
 package dan200.computercraft.shared.turtle.blocks;
 
 import com.mojang.authlib.GameProfile;
+import dan200.computercraft.api.component.ComputerComponents;
 import dan200.computercraft.api.peripheral.IPeripheral;
 import dan200.computercraft.api.turtle.ITurtleAccess;
 import dan200.computercraft.api.turtle.ITurtleUpgrade;
@@ -17,17 +18,17 @@ import dan200.computercraft.shared.computer.core.ComputerState;
 import dan200.computercraft.shared.computer.core.ServerComputer;
 import dan200.computercraft.shared.config.Config;
 import dan200.computercraft.shared.container.BasicContainer;
-import dan200.computercraft.shared.turtle.apis.TurtleAPI;
 import dan200.computercraft.shared.turtle.core.TurtleBrain;
 import dan200.computercraft.shared.turtle.inventory.TurtleMenu;
+import dan200.computercraft.shared.util.ComponentMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.NonNullList;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.Container;
+import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -38,6 +39,7 @@ import net.minecraft.world.phys.Vec3;
 
 import javax.annotation.Nullable;
 import java.util.Collections;
+import java.util.function.IntSupplier;
 
 public class TurtleBlockEntity extends AbstractComputerBlockEntity implements BasicContainer {
     public static final int INVENTORY_SIZE = 16;
@@ -53,13 +55,17 @@ public class TurtleBlockEntity extends AbstractComputerBlockEntity implements Ba
     private final NonNullList<ItemStack> inventory = NonNullList.withSize(INVENTORY_SIZE, ItemStack.EMPTY);
     private final NonNullList<ItemStack> inventorySnapshot = NonNullList.withSize(INVENTORY_SIZE, ItemStack.EMPTY);
     private boolean inventoryChanged = false;
+
+    private final IntSupplier fuelLimit;
+
     private TurtleBrain brain = new TurtleBrain(this);
     private MoveState moveState = MoveState.NOT_MOVED;
     private @Nullable IPeripheral peripheral;
     private @Nullable Runnable onMoved;
 
-    public TurtleBlockEntity(BlockEntityType<? extends TurtleBlockEntity> type, BlockPos pos, BlockState state, ComputerFamily family) {
+    public TurtleBlockEntity(BlockEntityType<? extends TurtleBlockEntity> type, BlockPos pos, BlockState state, IntSupplier fuelLimit, ComputerFamily family) {
         super(type, pos, state, family);
+        this.fuelLimit = fuelLimit;
     }
 
     boolean hasMoved() {
@@ -70,10 +76,9 @@ public class TurtleBlockEntity extends AbstractComputerBlockEntity implements Ba
     protected ServerComputer createComputer(int id) {
         var computer = new ServerComputer(
             (ServerLevel) getLevel(), getBlockPos(), id, label,
-            getFamily(), Config.turtleTermWidth,
-            Config.turtleTermHeight
+            getFamily(), Config.turtleTermWidth, Config.turtleTermHeight,
+            ComponentMap.builder().add(ComputerComponents.TURTLE, brain).build()
         );
-        computer.addAPI(new TurtleAPI(computer.getAPIEnvironment(), brain));
         brain.setupComputer(computer);
         return computer;
     }
@@ -84,13 +89,8 @@ public class TurtleBlockEntity extends AbstractComputerBlockEntity implements Ba
     }
 
     @Override
-    protected boolean canNameWithTag(Player player) {
-        return true;
-    }
-
-    @Override
-    protected double getInteractRange() {
-        return 12.0;
+    protected int getInteractRange() {
+        return Container.DEFAULT_DISTANCE_LIMIT + 4;
     }
 
     @Override
@@ -131,17 +131,8 @@ public class TurtleBlockEntity extends AbstractComputerBlockEntity implements Ba
         super.loadServer(nbt);
 
         // Read inventory
-        var nbttaglist = nbt.getList("Items", Tag.TAG_COMPOUND);
-        inventory.clear();
-        inventorySnapshot.clear();
-        for (var i = 0; i < nbttaglist.size(); i++) {
-            var tag = nbttaglist.getCompound(i);
-            var slot = tag.getByte("Slot") & 0xff;
-            if (slot < getContainerSize()) {
-                inventory.set(slot, ItemStack.of(tag));
-                inventorySnapshot.set(slot, inventory.get(slot).copy());
-            }
-        }
+        ContainerHelper.loadAllItems(nbt, inventory);
+        for (var i = 0; i < inventory.size(); i++) inventorySnapshot.set(i, inventory.get(i).copy());
 
         // Read state
         brain.readFromNBT(nbt);
@@ -150,16 +141,7 @@ public class TurtleBlockEntity extends AbstractComputerBlockEntity implements Ba
     @Override
     public void saveAdditional(CompoundTag nbt) {
         // Write inventory
-        var nbttaglist = new ListTag();
-        for (var i = 0; i < INVENTORY_SIZE; i++) {
-            if (!inventory.get(i).isEmpty()) {
-                var tag = new CompoundTag();
-                tag.putByte("Slot", (byte) i);
-                inventory.get(i).save(tag);
-                nbttaglist.add(tag);
-            }
-        }
-        nbt.put("Items", nbttaglist);
+        ContainerHelper.saveAllItems(nbt, inventory);
 
         // Write brain
         nbt = brain.writeToNBT(nbt);
@@ -172,8 +154,6 @@ public class TurtleBlockEntity extends AbstractComputerBlockEntity implements Ba
         return hasPeripheralUpgradeOnSide(localSide);
     }
 
-    // IDirectionalTile
-
     @Override
     public Direction getDirection() {
         return getBlockState().getValue(TurtleBlock.FACING);
@@ -181,9 +161,9 @@ public class TurtleBlockEntity extends AbstractComputerBlockEntity implements Ba
 
     public void setDirection(Direction dir) {
         if (dir.getAxis() == Direction.Axis.Y) dir = Direction.NORTH;
-        level.setBlockAndUpdate(worldPosition, getBlockState().setValue(TurtleBlock.FACING, dir));
+        getLevel().setBlockAndUpdate(worldPosition, getBlockState().setValue(TurtleBlock.FACING, dir));
 
-        updateOutput();
+        updateRedstone();
         updateInputsImmediately();
 
         onTileEntityChange();
@@ -271,6 +251,10 @@ public class TurtleBlockEntity extends AbstractComputerBlockEntity implements Ba
     }
 
     // Privates
+
+    public int getFuelLimit() {
+        return fuelLimit.getAsInt();
+    }
 
     private boolean hasPeripheralUpgradeOnSide(ComputerSide side) {
         ITurtleUpgrade upgrade;
